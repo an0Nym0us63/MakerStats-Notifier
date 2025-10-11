@@ -376,7 +376,7 @@ class ValueMonitor {
     chrome.storage.sync.get(['dailyReport','dailyNotificationTime'], (config) => {
       const dailyReport = config.dailyReport || 'yes';
       if (dailyReport === 'no') { this.log('Daily report disabled'); return; }
-      const dailyTime = config.dailyNotificationTime || '12:00';
+      const dailyTime = config.dailyNotificationTime || '23:30';
       const [hour, minute] = dailyTime.split(':').map(Number);
       const now = new Date(); const nextNotification = new Date(); nextNotification.setHours(hour, minute, 0, 0); if (nextNotification <= now) nextNotification.setDate(nextNotification.getDate()+1);
       const jitter = Math.floor((Math.random()*2 -1) * this._dailyScheduleJitterMs);
