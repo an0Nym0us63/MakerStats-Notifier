@@ -1,151 +1,88 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>MakerStats Notifier</title>
-    <style>
-        body {
-            width: 320px;
-            padding: 12px;
-            font-family: Arial, sans-serif;
-        }
-        .config-section {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin: 10px 0 5px;
-            font-weight: bold;
-        }
-        input, select {
-            width: 100%;
-            padding: 8px;
-            margin: 5px 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-sizing: border-box;
-        }
-        select {
-            background-color: white;
-        }
-        button {
-            width: 100%;
-            padding: 10px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-top: 8px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .status {
-            margin-top: 10px;
-            padding: 10px;
-            text-align: center;
-            border-radius: 4px;
-            min-height: 36px;
-        }
-        .success {
-            background-color: #dff0d8;
-            color: #3c763d;
-        }
-        .error {
-            background-color: #f2dede;
-            color: #a94442;
-        }
-        .section-title {
-            border-bottom: 1px solid #eee;
-            padding-bottom: 5px;
-            margin: 15px 0 10px;
-            color: #333;
-        }
-        .daily-report-section {
-            background-color: #f9f9f9;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 15px;
-        }
-        .small-note {
-            font-size: 12px;
-            color: #666;
-            margin-top: 6px;
-        }
-        .checkbox-label {
-            font-weight: normal;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>MakerStats Notifier</title>
+  <style>
+    body { width: 320px; padding: 12px; font-family: Arial, sans-serif; }
+    .config-section { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 6px; }
+    input[type="text"], input[type="password"], input[type="number"], input[type="time"], input[type="url"], select {
+      width: 100%; box-sizing: border-box; padding: 6px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .checkbox-label { display: flex; gap: 8px; align-items: center; }
+    .small-note { color: #666; font-size: 12px; margin-top: 6px; }
+    hr { border: 0; border-top: 1px solid #eee; margin: 12px 0; }
+    button { padding: 6px 10px; cursor: pointer; }
+    #status { margin-top: 8px; font-size: 12px; }
+    .muted { color: #666; font-size: 12px; }
+  </style>
 </head>
 <body>
-    <div class="config-section">
-        <h2 class="section-title">Basic Configuration</h2>
-        
-        <label for="telegram-token">Telegram Bot Token:</label>
-        <input 
-            type="text" 
-            id="telegram-token" 
-            placeholder="Enter Bot Token">
-        
-        <label for="chat-id">Telegram Chat ID:</label>
-        <input 
-            type="text" 
-            id="chat-id" 
-            placeholder="Enter Chat ID">
-        
-        <label for="refresh-interval">Refresh Interval:</label>
-        <select id="refresh-interval">
-            <option value="300000">5 minutes</option>
-            <option value="600000">10 minutes</option>
-            <option value="900000" selected>15 minutes</option>
-            <option value="1800000">30 minutes</option>
-            <option value="3600000">1 hour</option>
-            <option value="7200000">2 hours</option>
-            <option value="10800000">3 hours</option>
-            <option value="14400000">4 hours</option>
-        </select>
-    </div>
+  <div class="config-section">
+    <h3>Telegram</h3>
+    <label for="telegram-token">Bot Token:</label>
+    <input type="text" id="telegram-token" placeholder="123456:ABC-DEF...">
+    <label for="chat-id">Chat ID:</label>
+    <input type="text" id="chat-id" placeholder="123456789">
+  </div>
 
-    <div class="daily-report-section">
-        <h2 class="section-title">Daily Report</h2>
-        
-        <label for="daily-report">Enable Daily Report:</label>
+  <div class="config-section">
+    <label class="checkbox-label">
+      <input type="checkbox" id="use-ntfy">
+      Utiliser <strong>ntfy</strong> à la place de Telegram
+    </label>
+    <div id="ntfy-block">
+      <label for="ntfy-url">NTFY Topic URL:</label>
+      <input type="url" id="ntfy-url" placeholder="https://ntfy.sh/mon_topic ou https://ntfy.mondomaine/mon_topic">
+      <label for="ntfy-auth">Authorization (optionnel):</label>
+      <input type="text" id="ntfy-auth" placeholder="Bearer <token> ou Basic <base64>">
+      <label for="ntfy-tags">Tags par défaut (optionnel):</label>
+      <input type="text" id="ntfy-tags" placeholder="3d_print,makerworld">
+      <label for="ntfy-priority">Priorité par défaut (1-5):</label>
+      <input type="number" id="ntfy-priority" min="1" max="5" step="1" value="3">
+      <div class="small-note">Si les deux (Telegram & ntfy) sont configurés et que la case est cochée, ntfy est utilisé.</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <div class="config-section">
+    <div class="row">
+      <div>
+        <label for="refresh-interval">Refresh interval (minutes):</label>
+        <input type="number" id="refresh-interval" min="1" step="1" value="15">
+      </div>
+      <div>
+        <label for="daily-report">Daily report:</label>
         <select id="daily-report">
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
         </select>
-
-        <label for="notification-time">Notification Time:</label>
-        <input type="time" id="notification-time" value="12:00">
-
-        <div style="margin-top:12px;">
-            <label class="checkbox-label">
-                <input type="checkbox" id="notify-summary-mode" />
-                Send aggregated summary instead of per-model messages
-            </label>
-            <div class="small-note">
-                When enabled and saved, each periodic check will produce a single summary message containing all model activity. Per-model images are not included in summaries; per-model images remain when this is disabled.
-            </div>
-        </div>
-    </div>
-        
-    <button id="save-button">Save Configuration</button>
-    <button id="interim-button" style="margin-top:8px;">Send Interim Summary</button>
-    <div id="status" class="status"></div>
-
-    <div style="text-align: center; margin-top: 12px;">
-        <small>
-            <a href="https://makerworld.com/en/@thczv" target="_blank" rel="noreferrer noopener">
-                Support my models!
-            </a>
-        </small>
+      </div>
     </div>
 
-    <script src="popup.js"></script>
+    <label for="notification-time">Notification Time:</label>
+    <input type="time" id="notification-time" value="12:00">
+
+    <div style="margin-top:12px;">
+      <label class="checkbox-label">
+        <input type="checkbox" id="notify-summary-mode">
+        Send aggregated summary instead of per-model messages
+      </label>
+      <div class="small-note">
+        When enabled and saved, each periodic check will send an aggregated text summary. Per-model images are not included in summaries; per-model images are sent only in per-item mode.
+      </div>
+    </div>
+  </div>
+
+  <div class="config-section">
+    <button id="save-button">Save</button>
+    <button id="interim-button">Send interim summary now</button>
+    <div id="status" class="muted"></div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>
