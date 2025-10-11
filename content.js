@@ -502,16 +502,16 @@ class MakerStatsMonitor {
       }
     }
 
-    //if (!anyNotification){
-    //  await this.notifyMessage({
-    //    title: 'MakerWorld',
-    //    text: 'No new prints or downloads found.',
-    //    clickUrl: '',
-    //    imageUrl: '',
-    //    tags: 'heartbeat',
-    //    priority: 2
-    //  });
-    //}
+    if (!anyNotification){
+      await this.notifyMessage({
+        title: 'MakerWorld',
+        text: 'No new prints or downloads found.',
+        clickUrl: '',
+        imageUrl: '',
+        tags: 'heartbeat',
+        priority: 1
+      });
+    }
 
     await this.savePreviousValues(current);
   }
