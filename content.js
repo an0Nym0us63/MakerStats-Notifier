@@ -16,8 +16,8 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   const headers = { "Content-Type": "text/plain" };
   if (title) headers["Title"] = title;
   if (clickUrl) headers["Click"] = clickUrl;
-  const mergedTags = [tags || "", (cfg && cfg.ntfyTags) || ""].filter(Boolean).join(",").replace(/,+/g, ",");
-  if (mergedTags) headers["Tags"] = mergedTags;
+  //const mergedTags = [tags || "", (cfg && cfg.ntfyTags) || ""].filter(Boolean).join(",").replace(/,+/g, ",");
+  //if (mergedTags) headers["Tags"] = mergedTags;
   const p = Number.isFinite(cfg && cfg.ntfyPriority) ? cfg.ntfyPriority : (Number.isFinite(priority) ? priority : 3);
   headers["Priority"] = String(p);
   if (cfg && cfg.ntfyAuth) headers["Authorization"] = cfg.ntfyAuth;
