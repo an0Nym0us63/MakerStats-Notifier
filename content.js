@@ -7,6 +7,10 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
+  if (text && text.includes('No new prints or downloads found.')) {
+	console.debug('[MakerStats] ntfy: heartbeat suppressed');
+	return true; // on considère "traité" pour éviter tout fallback
+	}
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
   if (!url) { console.error("[MakerStats] ntfy: ntfyUrl missing"); return false; }
   const headers = { "Content-Type": "text/plain" };
