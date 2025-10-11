@@ -7,22 +7,79 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
+  // 1) supprimer le heartbeat
   if (text && text.includes('No new prints or downloads found.')) {
-	console.debug('[MakerStats] ntfy: heartbeat suppressed');
-	return true; // on considère "traité" pour éviter tout fallback
-	}
+    console.debug('[MakerStats] ntfy: heartbeat suppressed');
+    return true;
+  }
+
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
   if (!url) { console.error("[MakerStats] ntfy: ntfyUrl missing"); return false; }
-  const headers = { "Content-Type": "text/plain" };
-  if (title) headers["Title"] = title;
-  if (clickUrl) headers["Click"] = clickUrl;
-  //const mergedTags = [tags || "", (cfg && cfg.ntfyTags) || ""].filter(Boolean).join(",").replace(/,+/g, ",");
-  //if (mergedTags) headers["Tags"] = mergedTags;
-  const p = Number.isFinite(cfg && cfg.ntfyPriority) ? cfg.ntfyPriority : (Number.isFinite(priority) ? priority : 3);
-  headers["Priority"] = String(p);
-  if (cfg && cfg.ntfyAuth) headers["Authorization"] = cfg.ntfyAuth;
-  // 👉 Pour une vignette: passer l'image en pièce jointe, pas dans le body
-  if (imageUrl) headers["Attach"] = imageUrl; // alias: "X-Attach"
+
+  // priorité / auth
+  const prio = Number.isFinite(cfg && cfg.ntfyPriority) ? cfg.ntfyPriority
+            : (Number.isFinite(priority) ? priority : 3);
+
+  // fonction util
+  const setCommonHeaders = (h) => {
+    h["Priority"] = String(prio);
+    if (title)   h["Title"] = title;
+    if (clickUrl) h["Click"] = clickUrl;
+    if (cfg && cfg.ntfyAuth) h["Authorization"] = cfg.ntfyAuth;
+    // (si tu veux réactiver les tags du storage, dé-commente)
+    // const mergedTags = [tags || "", (cfg && cfg.ntfyTags) || ""].filter(Boolean).join(",").replace(/,+/g, ",");
+    // if (mergedTags) h["Tags"] = mergedTags;
+    return h;
+  };
+
+  // 2) si on a une image, tenter UPLOAD (PUT) avec Filename + Message
+  if (imageUrl) {
+    try {
+      const imgRes = await fetch(imageUrl, { mode: 'cors' });
+      if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
+      const blob = await imgRes.blob();
+      // déduire un nom de fichier
+      let fname = 'image';
+      try {
+        const u = new URL(imageUrl);
+        const last = u.pathname.split('/').pop() || '';
+        if (last) fname = last.split('?')[0] || last;
+      } catch { /* ignore */ }
+
+      const headers = setCommonHeaders({
+        // IMPORTANT: pour joindre un fichier, on met le binaire en body + cet en-tête
+        "Filename": fname,
+        // Texte de la notif en tant que message (sinon il serait ignoré)
+        "Message": text || ''
+      });
+
+      // PUT = upload du binaire en pièce jointe
+      const putRes = await fetch(url, { method: "PUT", headers, body: blob });
+      if (!putRes.ok) {
+        const t = await putRes.text().catch(() => putRes.statusText);
+        throw new Error(`ntfy PUT error ${putRes.status}: ${t}`);
+      }
+      return true;
+    } catch (e) {
+      console.warn('[MakerStats] ntfy upload failed, fallback to Attach:', e);
+      // 2b) fallback : si l’upload échoue, on repasse par Attach: <URL>
+      const headers = setCommonHeaders({
+        "Content-Type": "text/plain",
+        "Attach": imageUrl
+      });
+      const body = text || '';
+      const res = await fetch(url, { method: "POST", headers, body });
+      if (!res.ok) {
+        const t = await res.text().catch(()=>res.statusText);
+        console.error("[MakerStats] ntfy POST (attach fallback) HTTP", res.status, t);
+        return false;
+      }
+      return true;
+    }
+  }
+
+  // 3) pas d'image -> POST texte simple
+  const headers = setCommonHeaders({ "Content-Type": "text/plain" });
   const body = text || "";
   try {
     const res = await fetch(url, { method: "POST", headers, body });
