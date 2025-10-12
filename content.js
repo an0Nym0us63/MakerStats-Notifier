@@ -7,7 +7,7 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
-  // 1) supprimer le heartbeat
+  // 1️⃣ Ignorer les heartbeats silencieux
   if (text && text.includes('No new prints or downloads found.')) {
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
@@ -35,40 +35,68 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   if (title) baseHeaders["Title"] = asciiOrEmpty(title);
 
   try {
-    // === CAS 1 : Image → multipart/form-data ===
+    // === CAS 1 : envoi direct binaire (PUT) pour la preview ===
     if (imageUrl) {
-      const imgRes = await fetch(imageUrl);
-      if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
-      const blob = await imgRes.blob();
+      try {
+        const imgRes = await fetch(imageUrl);
+        if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
+        const blob = await imgRes.blob();
+
+        const headers = {
+          ...baseHeaders,
+          "Filename": "makerworld.jpg",
+          "Content-Type": blob.type || "image/jpeg",
+        };
+
+        const res = await fetch(url, {
+          method: "PUT",
+          headers,
+          body: blob,
+        });
+
+        if (res.ok) {
+          console.debug("[MakerStats] ntfy PUT upload successful");
+          return true;
+        }
+
+        const errText = await res.text().catch(() => res.statusText);
+        console.warn("[MakerStats] ntfy PUT failed, fallback to POST", res.status, errText);
+      } catch (putErr) {
+        console.warn("[MakerStats] ntfy PUT error, fallback to POST", putErr);
+      }
+
+      // === CAS 1 bis : fallback en multipart POST ===
+      const imgRes2 = await fetch(imageUrl);
+      const blob2 = await imgRes2.blob();
 
       const form = new FormData();
-      form.append("file", blob, "image.jpg");
+      form.append("file", blob2, "image.jpg");
       if (text) form.append("message", text);
 
-      const res = await fetch(url, {
+      const res2 = await fetch(url, {
         method: "POST",
-        headers: baseHeaders, // pas besoin de Content-Type (auto)
+        headers: baseHeaders, // Content-Type auto
         body: form
       });
 
-      if (!res.ok) {
-        const t = await res.text().catch(() => res.statusText);
-        console.error("[MakerStats] ntfy POST (multipart) HTTP", res.status, t);
+      if (!res2.ok) {
+        const t = await res2.text().catch(() => res2.statusText);
+        console.error("[MakerStats] ntfy POST (multipart) HTTP", res2.status, t);
         return false;
       }
 
-      console.debug("[MakerStats] ntfy multipart upload successful");
+      console.debug("[MakerStats] ntfy multipart fallback successful");
       return true;
     }
 
-    // === CAS 2 : Message texte simple ===
+    // === CAS 2 : message texte simple ===
     const res = await fetch(url, {
       method: "POST",
       headers: {
         ...baseHeaders,
-        "Content-Type": "text/plain"
+        "Content-Type": "text/plain; charset=UTF-8",
       },
-      body: text || ""
+      body: text || "",
     });
 
     if (!res.ok) {
@@ -83,6 +111,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     return false;
   }
 }
+
 
 
 
