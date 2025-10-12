@@ -7,7 +7,7 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
-  // 1) Supprimer le heartbeat
+  // 1) supprimer le heartbeat
   if (text && text.includes('No new prints or downloads found.')) {
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
@@ -19,13 +19,13 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     return false;
   }
 
-  // Helpers pour garder les headers ASCII
+  // Helpers pour garder les headers ASCII-safe
   const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, ""); // strict ASCII
   const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
   const safeURI = (u) => asciiOrEmpty(encodeURI(String(u || "")));
 
   // priorité
-  const prio = Number.isFinite(cfg?.ntfyPriority)
+  const prio = (cfg && Number.isFinite(cfg.ntfyPriority))
     ? cfg.ntfyPriority
     : (Number.isFinite(priority) ? priority : 3);
 
@@ -35,18 +35,19 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     ...(title ? { "Title": asciiOrEmpty(title) } : {}),
     ...(clickUrl ? { "Click": asciiOrEmpty(clickUrl) } : {}),
   };
-  if (cfg?.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
-  if (cfg?.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
+  if (cfg && cfg.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
+  if (cfg && cfg.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
 
   try {
     // --- CAS 1 : upload réel (image) → PUT binaire ---
     if (imageUrl) {
       const imgRes = await fetch(imageUrl);
+      if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
       const blob = await imgRes.blob();
 
       const headers = {
         ...baseHeaders,
-        "Message": asciiOrEmpty((text || "").slice(0, 200)), // mini aperçu ASCII
+        "Message": asciiOrEmpty((text || "").slice(0, 200)), // mini aperçu ASCII safe
         "Filename": "makerworld.jpg",
         "Content-Type": blob.type || "image/jpeg"
       };
@@ -77,7 +78,17 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     const res = await fetch(url, { method: "POST", headers, body });
 
     if (!res.ok) {
-      const t
+      const t = await res.text().catch(() => res.statusText);
+      console.error("[MakerStats] ntfy POST (text) HTTP", res.status, t);
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    console.error("[MakerStats] ntfy send error:", e);
+    return false;
+  }
+}
 
 
 
