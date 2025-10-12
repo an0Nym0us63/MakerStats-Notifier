@@ -7,59 +7,78 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
-  // 1) supprimer le heartbeat
+  // 1) Supprimer le heartbeat
   if (text && text.includes('No new prints or downloads found.')) {
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
   }
 
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
-  if (!url) { console.error("[MakerStats] ntfy: ntfyUrl missing"); return false; }
+  if (!url) {
+    console.error("[MakerStats] ntfy: ntfyUrl missing");
+    return false;
+  }
 
-  // Helpers pour ne PAS mettre de non-ASCII dans les headers
-  const asciiOnly = (s) => (s || "").replace(/[^\x00-\xFF]/g, "");       // retire tout > 0xFF
+  // Helpers pour garder les headers ASCII
+  const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, ""); // strict ASCII
   const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
-  const safeAttach = (u) => asciiOrEmpty(encodeURI(String(u || "")));     // URL-encode → ASCII
+  const safeURI = (u) => asciiOrEmpty(encodeURI(String(u || "")));
 
   // priorité
-  const prio = Number.isFinite(cfg && cfg.ntfyPriority) ? cfg.ntfyPriority
-            : (Number.isFinite(priority) ? priority : 3);
+  const prio = Number.isFinite(cfg?.ntfyPriority)
+    ? cfg.ntfyPriority
+    : (Number.isFinite(priority) ? priority : 3);
 
-  // Compose des headers 100% ASCII (PAS d’emojis ici !)
+  // Base headers 100 % ASCII
   const baseHeaders = {
     "Priority": String(prio),
-    // garde un titre ASCII ; si tu veux des emojis, mets-les dans le body
     ...(title ? { "Title": asciiOrEmpty(title) } : {}),
     ...(clickUrl ? { "Click": asciiOrEmpty(clickUrl) } : {}),
   };
-  if (cfg && cfg.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
+  if (cfg?.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
+  if (cfg?.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
 
-  // NOTE: éviter Tags côté navigateur (risque d’accents/émojis entrés par l’utilisateur)
-  // if (cfg && cfg.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
-
-  // --- STRATÉGIE BROWSER: POST + Attach (prévisualisable) ---
-  // Image → en-tête Attach (ASCII), texte → body (UTF-8)
   try {
+    // --- CAS 1 : upload réel (image) → PUT binaire ---
+    if (imageUrl) {
+      const imgRes = await fetch(imageUrl);
+      const blob = await imgRes.blob();
+
+      const headers = {
+        ...baseHeaders,
+        "Message": asciiOrEmpty((text || "").slice(0, 200)), // mini aperçu ASCII
+        "Filename": "makerworld.jpg",
+        "Content-Type": blob.type || "image/jpeg"
+      };
+
+      const res = await fetch(url, {
+        method: "PUT",
+        headers,
+        body: blob
+      });
+
+      if (!res.ok) {
+        const t = await res.text().catch(() => res.statusText);
+        console.error("[MakerStats] ntfy PUT (image) HTTP", res.status, t);
+        return false;
+      }
+
+      console.debug("[MakerStats] ntfy image upload successful");
+      return true;
+    }
+
+    // --- CAS 2 : simple message texte → POST ---
     const headers = {
       ...baseHeaders,
-      "Content-Type": "text/plain",
-      ...(imageUrl ? { "Attach": safeAttach(imageUrl) } : {}),
+      "Content-Type": "text/plain"
     };
-    const body = text || ""; // peut contenir emojis/accents, c’est OK dans le body
+    const body = text || "";
+
     const res = await fetch(url, { method: "POST", headers, body });
 
-    // Si CORS strict → res.ok devrait être true; sinon log best effort
     if (!res.ok) {
-      const t = await res.text().catch(() => res.statusText);
-      console.error("[MakerStats] ntfy POST (Attach) HTTP", res.status, t);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("[MakerStats] ntfy POST (Attach) error:", e);
-    return false;
-  }
-}
+      const t
+
 
 
 const autoScrollToFullBottom = ({ step = 600, delay = 250, settle = 800 } = {}) => new Promise(resolve => {
