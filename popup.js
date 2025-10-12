@@ -20,6 +20,33 @@ document.addEventListener('DOMContentLoaded', function () {
   function toggleNtfyBlock() {
     ntfyBlock.style.display = useNtfyCheckbox.checked ? 'block' : 'none';
   }
+  
+  function normalizeTimeTo24h(input) {
+  if (!input) return "23:30";
+  input = String(input).trim();
+
+  // Cas déjà 24h "HH:MM"
+  const m24 = /^(\d{1,2}):(\d{2})$/.exec(input);
+  if (m24) {
+    let h = parseInt(m24[1], 10), min = parseInt(m24[2], 10);
+    if (isNaN(h) || isNaN(min)) return "23:30";
+    h = Math.max(0, Math.min(23, h));
+    min = Math.max(0, Math.min(59, min));
+    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+  }
+
+  // Cas AM/PM "HH:MM AM/PM"
+  const m12 = /^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/.exec(input);
+  if (m12) {
+    let h = parseInt(m12[1], 10), min = parseInt(m12[2], 10);
+    const mer = m12[3].toUpperCase();
+    if (mer === 'AM') { if (h === 12) h = 0; }
+    else { if (h !== 12) h += 12; }
+    return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+  }
+
+  return "23:30";
+}
 
   function showStatus(message, isError = false) {
     statusDiv.textContent = message;
@@ -30,7 +57,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // Load settings
   chrome.storage.sync.get([
     'telegramToken','chatId','refreshInterval',
-    'dailyReport','notificationTime','notifySummaryMode',
+    'dailyReport','dailyNotificationTime','notifySummaryMode',
     // ntfy
     'useNtfy','ntfyUrl','ntfyAuth','ntfyTags','ntfyPriority'
   ], function (config) {
@@ -38,7 +65,7 @@ document.addEventListener('DOMContentLoaded', function () {
     chatIdInput.value = config.chatId || '';
     refreshIntervalSelect.value = (config.refreshInterval ? Math.max(1, Math.round(config.refreshInterval/60000)) : 15);
     dailyReportSelect.value = config.dailyReport || 'yes';
-    notificationTimeInput.value = config.notificationTime || '12:00';
+    notificationTimeInput.value = normalizeTimeTo24h(config.dailyNotificationTime || '23:30');
     notifySummaryCheckbox.checked = !!config.notifySummaryMode;
 
     useNtfyCheckbox.checked = !!config.useNtfy;
@@ -62,7 +89,7 @@ document.addEventListener('DOMContentLoaded', function () {
       chatId: chatIdInput.value.trim(),
       refreshInterval: refreshMs,
       dailyReport: dailyReportSelect.value,
-      notificationTime: notificationTimeInput.value,
+      dailyNotificationTime: normalizeTimeTo24h(notificationTimeInput.value),
       notifySummaryMode: !!notifySummaryCheckbox.checked,
       // ntfy
       useNtfy: !!useNtfyCheckbox.checked,
@@ -97,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function () {
         showStatus('No active tab', true);
         return;
       }
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'SEND_INTERIM_SUMMARY' }, function (response) {
+      chrome.tabs.sendMessage(tabs[0].id, { type: 'INTERIM_SUMMARY_REQUEST' }, function (response) {
         if (chrome.runtime.lastError || !response || !response.ok) {
           console.error('Interim summary error', chrome.runtime.lastError || response);
           showStatus('Failed to send interim summary', true);

@@ -568,6 +568,8 @@ Total Reward Points: ${summary.rewardPointsTotal}
             this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'milestone', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
             const lines = []; const equivalentTotal = currentDownloadsTotal;
             lines.push(`📦 Update for: ${current.name}`, '', `${downloadsDeltaEquivalent > 0 ? '+' : ''}${downloadsDeltaEquivalent} Downloads (total ${equivalentTotal})`, '');
+			lines.push(`⬇️ Downloads: ${currentDownloadsRaw} (${downloadsDeltaRaw > 0 ? '+' : ''}${downloadsDeltaRaw})`);
+            lines.push(`🖨️ Prints: ${currentPrints} (${printsDelta > 0 ? '+' : ''}${printsDelta})`);
             if (modelSummary.rewards.length > 0) { modelSummary.rewards.forEach(r => lines.push(`🎁 Reward Earned! +${r.points} points at ${r.thresholdDownloads} downloads`)); lines.push(''); }
             const nextThresholdAfterCurrent = this.nextRewardDownloads(equivalentTotal);
             const downloadsUntilNext = Math.max(0, nextThresholdAfterCurrent - equivalentTotal);
@@ -585,7 +587,19 @@ Total Reward Points: ${summary.rewardPointsTotal}
           }
         } else {
           const hasActivity3 = (downloadsDeltaRaw !== 0) || (printsDelta !== 0) || (modelSummary.rewards.length > 0) || (boostsDelta > 0);
-          if (hasActivity3) modelsActivity.push({ id, name: current.name, downloadsDeltaEquivalent, currentDownloadsTotal: currentDownloadsTotal, rewardPointsForThisModel: modelSummary.rewards.reduce((s,r)=>s+r.points,0), boostsDelta });
+          if (hasActivity3) modelsActivity.push({
+            id,
+            name: current.name,
+            downloadsDeltaEquivalent,
+            currentDownloadsTotal,
+            rewardPointsForThisModel: modelSummary.rewards.reduce((s,r)=>s+r.points,0),
+            boostsDelta,
+            // 👉 Ajout minimal pour le rendu
+            currentDownloadsRaw,
+            currentPrints,
+            downloadsDeltaRaw,
+            printsDelta
+          });
         }
       }
 
@@ -634,7 +648,14 @@ Total Reward Points: ${summary.rewardPointsTotal}
         const modelLines=[]; let anyLargeDelta=false;
         list.forEach((m,i) => {
           const downloadsDelta = m.downloadsDeltaEquivalent || 0, total = m.currentDownloadsTotal || 0, interval = m.rewardInterval || this.getRewardInterval(total), nextThreshold = this.nextRewardDownloads(total), remaining = Math.max(0, nextThreshold - total), ptsEarned = m.rewardPointsForThisModel || 0;
-          let line = `${i+1}. ${m.name}: +${downloadsDelta} (total ${total})`; if (ptsEarned>0) line += `  🎉 +${ptsEarned} pts`; line += ` (needs ${remaining} for next 🎁, interval ${interval})`;
+           let line = `${i+1}. ${m.name}: +${downloadsDelta} (total ${total})`;
+          // 👉 Ajout minimal : détails réels
+          const dl = m.currentDownloadsRaw || 0;
+          const pr = m.currentPrints || 0;
+          const dld = m.downloadsDeltaRaw || 0;
+          const prd = m.printsDelta || 0;
+          line += ` — DL: ${dl} (${dld >= 0 ? '+' : ''}${dld}), PR: ${pr} (${prd >= 0 ? '+' : ''}${prd})`; 
+		  if (ptsEarned>0) line += `  🎉 +${ptsEarned} pts`; line += ` (needs ${remaining} for next 🎁, interval ${interval})`;
           if (Math.abs(downloadsDelta) > this._suspiciousDeltaLimit) { line += `\n⚠️ The number of downloads during this period is very high. This could be because your model is very popular (good job!). Or it could be an error. You may want to shorten the refresh interval.`; anyLargeDelta=true; }
           if ((m.boostsDelta || 0) > 0) {
             line += `
