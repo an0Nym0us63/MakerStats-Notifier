@@ -19,13 +19,16 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     return false;
   }
 
+  // Helpers ASCII-only (pour éviter l’erreur ISO-8859-1)
   const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, "");
   const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
 
+  // Priorité (1–5)
   const prio = (cfg && Number.isFinite(cfg.ntfyPriority))
     ? cfg.ntfyPriority
     : (Number.isFinite(priority) ? priority : 3);
 
+  // Headers de base (ASCII uniquement)
   const baseHeaders = {
     "Priority": String(prio),
   };
@@ -35,18 +38,15 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   if (title) baseHeaders["Title"] = asciiOrEmpty(title);
 
   try {
-    // === CAS 1 : envoi direct binaire (PUT) pour la preview ===
+    // === 🖼️ CAS 1 : envoi direct binaire (PUT) → preview native ===
     if (imageUrl) {
       try {
         const imgRes = await fetch(imageUrl);
         if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
         const blob = await imgRes.blob();
 
-        const headers = {
-          ...baseHeaders,
-          "Filename": "makerworld.jpg",
-          "Content-Type": blob.type || "image/jpeg",
-        };
+        // Headers minimalistes (aucun Filename ni Content-Type)
+        const headers = { ...baseHeaders };
 
         const res = await fetch(url, {
           method: "PUT",
@@ -55,7 +55,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
         });
 
         if (res.ok) {
-          console.debug("[MakerStats] ntfy PUT upload successful");
+          console.debug("[MakerStats] ntfy PUT upload successful (preview visible)");
           return true;
         }
 
@@ -65,7 +65,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
         console.warn("[MakerStats] ntfy PUT error, fallback to POST", putErr);
       }
 
-      // === CAS 1 bis : fallback en multipart POST ===
+      // === 📦 CAS 1 bis : fallback en multipart POST (upload classique) ===
       const imgRes2 = await fetch(imageUrl);
       const blob2 = await imgRes2.blob();
 
@@ -75,8 +75,8 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
 
       const res2 = await fetch(url, {
         method: "POST",
-        headers: baseHeaders, // Content-Type auto
-        body: form
+        headers: baseHeaders, // Content-Type auto géré
+        body: form,
       });
 
       if (!res2.ok) {
@@ -89,7 +89,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
       return true;
     }
 
-    // === CAS 2 : message texte simple ===
+    // === 💬 CAS 2 : message texte simple ===
     const res = await fetch(url, {
       method: "POST",
       headers: {
