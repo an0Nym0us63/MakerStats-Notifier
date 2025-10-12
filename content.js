@@ -583,7 +583,8 @@ Total Reward Points: ${summary.rewardPointsTotal}
             if (sent && modelSummary.rewards.length > 0) { const pts = modelSummary.rewards.reduce((s,r)=>s+r.points,0); await this._accumulateDailyRewardPoints(pts); }
             anyNotification = true;
           } else {
-            const sent = await this.sendTelegramMessageWithPhoto('test', modelSummary.imageUrl); 
+            const sent = await this.sendTelegramMessageWithPhoto('test', modelSummary.imageUrl);
+			anyNotification = true;
 		  }
         } else {
           const hasActivity3 = (downloadsDeltaRaw !== 0) || (printsDelta !== 0) || (modelSummary.rewards.length > 0) || (boostsDelta > 0);
