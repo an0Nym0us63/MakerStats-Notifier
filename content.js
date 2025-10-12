@@ -19,63 +19,57 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     return false;
   }
 
-  // Helpers pour garder les headers ASCII-safe
-  const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, ""); // strict ASCII
+  const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, "");
   const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
-  const safeURI = (u) => asciiOrEmpty(encodeURI(String(u || "")));
 
-  // priorité
   const prio = (cfg && Number.isFinite(cfg.ntfyPriority))
     ? cfg.ntfyPriority
     : (Number.isFinite(priority) ? priority : 3);
 
-  // Base headers 100 % ASCII
   const baseHeaders = {
     "Priority": String(prio),
-    ...(title ? { "Title": asciiOrEmpty(title) } : {}),
-    ...(clickUrl ? { "Click": asciiOrEmpty(clickUrl) } : {}),
   };
   if (cfg && cfg.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
   if (cfg && cfg.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
+  if (clickUrl) baseHeaders["Click"] = asciiOrEmpty(clickUrl);
+  if (title) baseHeaders["Title"] = asciiOrEmpty(title);
 
   try {
-    // --- CAS 1 : upload réel (image) → PUT binaire ---
+    // === CAS 1 : Image → multipart/form-data ===
     if (imageUrl) {
       const imgRes = await fetch(imageUrl);
       if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
       const blob = await imgRes.blob();
 
-      const headers = {
-        ...baseHeaders,
-        "Message": asciiOrEmpty((text || "").slice(0, 200)), // mini aperçu ASCII safe
-        "Filename": "makerworld.jpg",
-        "Content-Type": blob.type || "image/jpeg"
-      };
+      const form = new FormData();
+      form.append("file", blob, "image.jpg");
+      if (text) form.append("message", text);
 
       const res = await fetch(url, {
-        method: "PUT",
-        headers,
-        body: blob
+        method: "POST",
+        headers: baseHeaders, // pas besoin de Content-Type (auto)
+        body: form
       });
 
       if (!res.ok) {
         const t = await res.text().catch(() => res.statusText);
-        console.error("[MakerStats] ntfy PUT (image) HTTP", res.status, t);
+        console.error("[MakerStats] ntfy POST (multipart) HTTP", res.status, t);
         return false;
       }
 
-      console.debug("[MakerStats] ntfy image upload successful");
+      console.debug("[MakerStats] ntfy multipart upload successful");
       return true;
     }
 
-    // --- CAS 2 : simple message texte → POST ---
-    const headers = {
-      ...baseHeaders,
-      "Content-Type": "text/plain"
-    };
-    const body = text || "";
-
-    const res = await fetch(url, { method: "POST", headers, body });
+    // === CAS 2 : Message texte simple ===
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...baseHeaders,
+        "Content-Type": "text/plain"
+      },
+      body: text || ""
+    });
 
     if (!res.ok) {
       const t = await res.text().catch(() => res.statusText);
