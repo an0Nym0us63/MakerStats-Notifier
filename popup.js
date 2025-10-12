@@ -78,7 +78,15 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   useNtfyCheckbox.addEventListener('change', toggleNtfyBlock);
-
+	document.getElementById('dump-models').addEventListener('click', function () {
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    if (!tabs[0]) return;
+    chrome.tabs.sendMessage(tabs[0].id, { type: 'DUMP_MODELS' }, function (response) {
+      // optionnel: feedback visuel
+      // console.log('dump response', response);
+    });
+  });
+});
   // Save settings
   saveButton.addEventListener('click', function () {
     const refreshMins = Math.max(1, parseInt(refreshIntervalSelect.value || '15', 10));

@@ -142,7 +142,50 @@ class ValueMonitor {
   log(...a){ console.log(...a); }
   warn(...a){ console.warn(...a); }
   error(...a){ console.error(...a); }
+	 // --- ENVOI SNAPSHOT DE TOUS LES MODÈLES ---
+  async sendModelsSnapshot() {
+    const current = this.getCurrentValues();
+    if (!current || !current.models || !Object.keys(current.models).length) {
+      await this.sendTelegramMessage("No models found on the page.");
+      return true;
+    }
 
+    // Tri par “popularité” (downloads + 2x prints) décroissant
+    const models = Object.values(current.models)
+      .map(m => ({
+        ...m,
+        totalEq: this.calculateDownloadsEquivalent(m.downloads, m.prints)
+      }))
+      .sort((a,b) => b.totalEq - a.totalEq);
+
+    // En-tête
+    const header = `📸 Models snapshot (${models.length} items)\nSorted by downloads + 2×prints\n`;
+    await this.sendTelegramMessage(header);
+
+    // Envoi 1 message par modèle (avec image si dispo)
+    for (const m of models) {
+      const captionLines = [
+        `📦 ${m.name}`,
+        `⬇️ Downloads: ${m.downloads}`,
+        `🖨️ Prints: ${m.prints}`,
+        `⚡ Boosts: ${m.boosts}`,
+        `Σ Downloads eq: ${m.totalEq}`,
+      ];
+      if (m.permalink) captionLines.push(`🔗 ${m.permalink}`);
+      const caption = captionLines.join('\n');
+
+      if (m.imageUrl) {
+        await this.sendTelegramMessageWithPhoto(caption, m.imageUrl);
+      } else {
+        await this.sendTelegramMessage(caption);
+      }
+
+      // petit spacing pour éviter rate limit Telegram/ntfy
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    return true;
+  }
   // period key uses user's dailyNotificationTime or 12:00 default
   async getCurrentPeriodKey() {
     const cfg = await new Promise(res => chrome.storage.sync.get(['dailyNotificationTime'], r =>
@@ -866,4 +909,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.sync.get(['notifySummaryMode'], cfg => { monitor.notifySummaryMode = !!(cfg?.notifySummaryMode); monitor.log('CONFIG_SAVED received. notifySummaryMode =', monitor.notifySummaryMode); monitor.restart().then(()=>sendResponse({ok:true})).catch(err=>sendResponse({ok:false, error: err?.message})); });
     return true;
   }
+    if (msg?.type === 'DUMP_MODELS') {
+    monitor.sendModelsSnapshot()
+      .then(()=>sendResponse({ok:true}))
+      .catch(err => { console.error('dump models error', err); sendResponse({ok:false, error: err?.message}); });
+    return true;
+  }
+
 });
