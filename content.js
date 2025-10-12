@@ -7,28 +7,29 @@ console.log(`Initializing monitor — ${ITERATION}`);
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
-  // 1️⃣ Ignorer les heartbeats silencieux
+  // 💓 1) Ignorer le heartbeat
   if (text && text.includes('No new prints or downloads found.')) {
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
   }
 
+  // 💬 2) URL du serveur ntfy
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
   if (!url) {
     console.error("[MakerStats] ntfy: ntfyUrl missing");
     return false;
   }
 
-  // Helpers ASCII-only (pour éviter l’erreur ISO-8859-1)
+  // 🧹 3) Nettoyage minimal (évite erreurs Chrome sur headers non ASCII)
   const asciiOnly = (s) => (s || "").replace(/[^\x00-\x7F]/g, "");
   const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
 
-  // Priorité (1–5)
+  // 🔢 4) Détermination de la priorité
   const prio = (cfg && Number.isFinite(cfg.ntfyPriority))
     ? cfg.ntfyPriority
     : (Number.isFinite(priority) ? priority : 3);
 
-  // Headers de base (ASCII uniquement)
+  // 🧩 5) Headers de base (ASCII only)
   const baseHeaders = {
     "Priority": String(prio),
   };
@@ -38,63 +39,36 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   if (title) baseHeaders["Title"] = asciiOrEmpty(title);
 
   try {
-    // === 🖼️ CAS 1 : envoi direct binaire (PUT) → preview native ===
+    // === 🖼️ CAS IMAGE (prévisualisable) ===
     if (imageUrl) {
-      try {
-        const imgRes = await fetch(imageUrl);
-        if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
-        const blob = await imgRes.blob();
+      const headers = {
+        ...baseHeaders,
+        "Content-Type": "text/plain",
+        "Attach": asciiOrEmpty(encodeURI(imageUrl)), // ntfy va télécharger et afficher la preview
+      };
 
-        // Headers minimalistes (aucun Filename ni Content-Type)
-        const headers = { ...baseHeaders };
-
-        const res = await fetch(url, {
-          method: "PUT",
-          headers,
-          body: blob,
-        });
-
-        if (res.ok) {
-          console.debug("[MakerStats] ntfy PUT upload successful (preview visible)");
-          return true;
-        }
-
-        const errText = await res.text().catch(() => res.statusText);
-        console.warn("[MakerStats] ntfy PUT failed, fallback to POST", res.status, errText);
-      } catch (putErr) {
-        console.warn("[MakerStats] ntfy PUT error, fallback to POST", putErr);
-      }
-
-      // === 📦 CAS 1 bis : fallback en multipart POST (upload classique) ===
-      const imgRes2 = await fetch(imageUrl);
-      const blob2 = await imgRes2.blob();
-
-      const form = new FormData();
-      form.append("file", blob2, "image.jpg");
-      if (text) form.append("message", text);
-
-      const res2 = await fetch(url, {
+      const res = await fetch(url, {
         method: "POST",
-        headers: baseHeaders, // Content-Type auto géré
-        body: form,
+        headers,
+        body: text || "", // le message peut contenir accents/émojis
       });
 
-      if (!res2.ok) {
-        const t = await res2.text().catch(() => res2.statusText);
-        console.error("[MakerStats] ntfy POST (multipart) HTTP", res2.status, t);
+      if (!res.ok) {
+        const t = await res.text().catch(() => res.statusText);
+        console.error("[MakerStats] ntfy POST (Attach) HTTP", res.status, t);
         return false;
       }
 
-      console.debug("[MakerStats] ntfy multipart fallback successful");
+      console.debug("[MakerStats] ntfy POST (Attach) OK — image preview enabled");
       return true;
     }
 
-    // === 💬 CAS 2 : message texte simple ===
+    // === ✉️ CAS TEXTE SEUL ===
     const res = await fetch(url, {
       method: "POST",
       headers: {
         ...baseHeaders,
-        "Content-Type": "text/plain; charset=UTF-8",
+        "Content-Type": "text/plain"
       },
       body: text || "",
     });
@@ -105,7 +79,9 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
       return false;
     }
 
+    console.debug("[MakerStats] ntfy POST (text) OK");
     return true;
+
   } catch (e) {
     console.error("[MakerStats] ntfy send error:", e);
     return false;
