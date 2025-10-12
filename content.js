@@ -16,84 +16,51 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
   if (!url) { console.error("[MakerStats] ntfy: ntfyUrl missing"); return false; }
 
-  // priorité / auth
+  // Helpers pour ne PAS mettre de non-ASCII dans les headers
+  const asciiOnly = (s) => (s || "").replace(/[^\x00-\xFF]/g, "");       // retire tout > 0xFF
+  const asciiOrEmpty = (s) => asciiOnly(String(s || "")).trim();
+  const safeAttach = (u) => asciiOrEmpty(encodeURI(String(u || "")));     // URL-encode → ASCII
+
+  // priorité
   const prio = Number.isFinite(cfg && cfg.ntfyPriority) ? cfg.ntfyPriority
             : (Number.isFinite(priority) ? priority : 3);
 
-  // fonction util
-  const setCommonHeaders = (h) => {
-    h["Priority"] = String(prio);
-    if (title)   h["Title"] = title;
-    if (clickUrl) h["Click"] = clickUrl;
-    if (cfg && cfg.ntfyAuth) h["Authorization"] = cfg.ntfyAuth;
-    // (si tu veux réactiver les tags du storage, dé-commente)
-    // const mergedTags = [tags || "", (cfg && cfg.ntfyTags) || ""].filter(Boolean).join(",").replace(/,+/g, ",");
-    // if (mergedTags) h["Tags"] = mergedTags;
-    return h;
+  // Compose des headers 100% ASCII (PAS d’emojis ici !)
+  const baseHeaders = {
+    "Priority": String(prio),
+    // garde un titre ASCII ; si tu veux des emojis, mets-les dans le body
+    ...(title ? { "Title": asciiOrEmpty(title) } : {}),
+    ...(clickUrl ? { "Click": asciiOrEmpty(clickUrl) } : {}),
   };
+  if (cfg && cfg.ntfyAuth) baseHeaders["Authorization"] = asciiOrEmpty(cfg.ntfyAuth);
 
-  // 2) si on a une image, tenter UPLOAD (PUT) avec Filename + Message
-  if (imageUrl) {
-    try {
-      const imgRes = await fetch(imageUrl, { mode: 'cors' });
-      if (!imgRes.ok) throw new Error(`fetch image failed: ${imgRes.status}`);
-      const blob = await imgRes.blob();
-      // déduire un nom de fichier
-      let fname = 'image';
-      try {
-        const u = new URL(imageUrl);
-        const last = u.pathname.split('/').pop() || '';
-        if (last) fname = last.split('?')[0] || last;
-      } catch { /* ignore */ }
+  // NOTE: éviter Tags côté navigateur (risque d’accents/émojis entrés par l’utilisateur)
+  // if (cfg && cfg.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
 
-      const headers = setCommonHeaders({
-        // IMPORTANT: pour joindre un fichier, on met le binaire en body + cet en-tête
-        "Filename": fname,
-        // Texte de la notif en tant que message (sinon il serait ignoré)
-        "Message": text || ''
-      });
-
-      // PUT = upload du binaire en pièce jointe
-      const putRes = await fetch(url, { method: "PUT", headers, body: blob });
-      if (!putRes.ok) {
-        const t = await putRes.text().catch(() => putRes.statusText);
-        throw new Error(`ntfy PUT error ${putRes.status}: ${t}`);
-      }
-      return true;
-    } catch (e) {
-      console.warn('[MakerStats] ntfy upload failed, fallback to Attach:', e);
-      // 2b) fallback : si l’upload échoue, on repasse par Attach: <URL>
-      const headers = setCommonHeaders({
-        "Content-Type": "text/plain",
-        "Attach": imageUrl
-      });
-      const body = text || '';
-      const res = await fetch(url, { method: "POST", headers, body });
-      if (!res.ok) {
-        const t = await res.text().catch(()=>res.statusText);
-        console.error("[MakerStats] ntfy POST (attach fallback) HTTP", res.status, t);
-        return false;
-      }
-      return true;
-    }
-  }
-
-  // 3) pas d'image -> POST texte simple
-  const headers = setCommonHeaders({ "Content-Type": "text/plain" });
-  const body = text || "";
+  // --- STRATÉGIE BROWSER: POST + Attach (prévisualisable) ---
+  // Image → en-tête Attach (ASCII), texte → body (UTF-8)
   try {
+    const headers = {
+      ...baseHeaders,
+      "Content-Type": "text/plain",
+      ...(imageUrl ? { "Attach": safeAttach(imageUrl) } : {}),
+    };
+    const body = text || ""; // peut contenir emojis/accents, c’est OK dans le body
     const res = await fetch(url, { method: "POST", headers, body });
+
+    // Si CORS strict → res.ok devrait être true; sinon log best effort
     if (!res.ok) {
-      const t = await res.text().catch(()=>res.statusText);
-      console.error("[MakerStats] ntfy HTTP", res.status, t);
+      const t = await res.text().catch(() => res.statusText);
+      console.error("[MakerStats] ntfy POST (Attach) HTTP", res.status, t);
       return false;
     }
     return true;
   } catch (e) {
-    console.error("[MakerStats] ntfy error:", e);
+    console.error("[MakerStats] ntfy POST (Attach) error:", e);
     return false;
   }
 }
+
 
 const autoScrollToFullBottom = ({ step = 600, delay = 250, settle = 800 } = {}) => new Promise(resolve => {
   let timer;
