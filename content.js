@@ -868,13 +868,13 @@ Total Reward Points: ${summary.rewardPointsTotal}
     }
 
     const totalEquivalent = dailyDownloads + (dailyPrints * 2);
-    const topDownloadsList = top5Downloads.length ? top5Downloads.map((m,i)=>`${i+1}. ${m.name}: +${m.downloadsGained}`).join('\n') : 'No new downloads so far';
-    const topPrintsList = top5Prints.length ? top5Prints.map((m,i)=>`${i+1}. ${m.name}: +${m.printsGained}`).join('\n') : 'No new prints so far';
+    const topDownloadsList = top5Downloads.length ? top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'No new downloads so far';
+    const topPrintsList = top5Prints.length ? top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'No new prints so far';
     const fromTs = new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
     const message = `
 🔔 Interim Summary (${fromTs} - ${toTs}):
 
-Total Downloads: ${totalEquivalent} [downloads + 2x prints]
+Total Download points: ${totalEquivalent}
 
 🏆 Top Downloads:
 ${topDownloadsList}
