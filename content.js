@@ -518,12 +518,12 @@ class ValueMonitor {
             let rewardsSection = 'No rewards earned in the prior 24 hours';
             if (summary.rewardsEarned?.length) rewardsSection = summary.rewardsEarned.map(r => `${r.name}: +${r.rewardPointsTotalForModel} points (thresholds: ${r.thresholds.join(', ')})`).join('\n');
             const totalEquivalent = summary.dailyDownloads + (summary.dailyPrints * 2);
-            const topDownloadsList = summary.top5Downloads.length ? summary.top5Downloads.map((m,i)=>`${i+1}. ${m.name}: +${m.downloadsGained}`).join('\n') : 'No new downloads today';
-            const topPrintsList = summary.top5Prints.length ? summary.top5Prints.map((m,i)=>`${i+1}. ${m.name}: +${m.printsGained}`).join('\n') : 'No new prints today';
+            const topDownloadsList = summary.top5Downloads.length ? summary.top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'No new downloads today';
+            const topPrintsList = summary.top5Prints.length ? summary.top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'No new prints today';
             const message = `
 📊 24-Hour Summary (${summary.from} - ${summary.to}):
 
-Total Downloads: ${totalEquivalent} [total of downloads + 2x prints]
+Total Download points: ${totalEquivalent}
 
 🏆 Today's Most Downloaded:
 ${topDownloadsList}
@@ -692,7 +692,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
 
         let rewardsToday = running - lastDailyPoints; if (rewardsToday < 0) rewardsToday = running;
         const fromTs = new Date(this.previousValues.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const headerLines = [`📊 Summary (${fromTs} - ${toTs}):`, '', `Downloads points this period: ${totalEquivalent} `, '', 'Model updates:', ''];
+        const headerLines = [`📊 Summary (${fromTs} - ${toTs}):`, '', `Download points this period: ${totalEquivalent} `, '', 'Model updates:', ''];
         const maxModelsInMessage = 200;
         const list = modelsActivity.slice(0, maxModelsInMessage);
         const modelLines=[]; let anyLargeDelta=false;
