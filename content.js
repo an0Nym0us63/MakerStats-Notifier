@@ -1,7 +1,13 @@
 const ITERATION = 'Iteration 20.4.1';
 console.log(`Initializing monitor — ${ITERATION}`);
 
-
+const escapeHtml = (s = "") =>
+  String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 // === ntfy (override minimal; no flow change) ===
 // Reads chrome.storage.sync keys set by your popup (if any):
 //   useNtfy (bool, optional), ntfyUrl (string), ntfyAuth (string, optional),
