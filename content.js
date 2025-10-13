@@ -12,6 +12,16 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
   }
+    // Convertit un message HTML "léger" (Telegram) en Markdown (ntfy)
+  const htmlToMd = (s="") =>
+    String(s)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<b>/gi, '**').replace(/<\/b>/gi, '**')
+      .replace(/<strong>/gi, '**').replace(/<\/strong>/gi, '**')
+      .replace(/<i>/gi, '*').replace(/<\/i>/gi, '*')
+      .replace(/<em>/gi, '*').replace(/<\/em>/gi, '*')
+      // retire toute autre balise HTML résiduelle
+      .replace(/<\/?[^>]+>/g, '');
 
   // 💬 2) URL du serveur ntfy
   const url = (cfg && cfg.ntfyUrl) ? String(cfg.ntfyUrl).trim() : "";
@@ -37,6 +47,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
   if (cfg && cfg.ntfyTags) baseHeaders["Tags"] = asciiOrEmpty(cfg.ntfyTags);
   if (clickUrl) baseHeaders["Click"] = asciiOrEmpty(clickUrl);
   if (title) baseHeaders["Title"] = asciiOrEmpty(title);
+  baseHeaders["Markdown"] = "yes";
 
   try {
     // === 🖼️ CAS IMAGE (prévisualisable) ===
@@ -50,7 +61,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
       const res = await fetch(url, {
         method: "POST",
         headers,
-        body: text || "", // le message peut contenir accents/émojis
+        body:  htmlToMd(text || ""), // le message peut contenir accents/émojis
       });
 
       if (!res.ok) {
@@ -70,7 +81,7 @@ async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, p
         ...baseHeaders,
         "Content-Type": "text/plain"
       },
-      body: text || "",
+      body: htmlToMd(text || ""),
     });
 
     if (!res.ok) {
@@ -681,13 +692,13 @@ Total Reward Points: ${summary.rewardPointsTotal}
 
         let rewardsToday = running - lastDailyPoints; if (rewardsToday < 0) rewardsToday = running;
         const fromTs = new Date(this.previousValues.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const headerLines = [`📊 Summary (${fromTs} - ${toTs}):`, '', `Downloads this period: ${totalEquivalent} (downloads + 2X prints)`, '', 'Model updates:', ''];
+        const headerLines = [`📊 Summary (${fromTs} - ${toTs}):`, '', `Downloads points this period: ${totalEquivalent} `, '', 'Model updates:', ''];
         const maxModelsInMessage = 200;
         const list = modelsActivity.slice(0, maxModelsInMessage);
         const modelLines=[]; let anyLargeDelta=false;
         list.forEach((m,i) => {
           const downloadsDelta = m.downloadsDeltaEquivalent || 0, total = m.currentDownloadsTotal || 0, interval = m.rewardInterval || this.getRewardInterval(total), nextThreshold = this.nextRewardDownloads(total), remaining = Math.max(0, nextThreshold - total), ptsEarned = m.rewardPointsForThisModel || 0;
-           let line = `${i+1}. ${m.name}: +${downloadsDelta} (total ${total})`;
+           let line = `${i+1}. <b>${escapeHtml(m.name)}</b>: +${downloadsDelta} (total ${total})`;
           // 👉 Ajout minimal : détails réels
           const dl = m.currentDownloadsRaw || 0;
           const pr = m.currentPrints || 0;
