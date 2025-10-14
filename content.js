@@ -150,7 +150,7 @@ class ValueMonitor {
     this._telegramMaxMessageChars = 4000;
     this._suspiciousDeltaLimit = 200;
 	this._interimTimers = [];
-	this._interimSlots = ['09:00','12:00','15:00','16:00','22:00']; // créneaux fixes
+	this._interimSlots = ['07:00','12:00','16:00','22:00']; // créneaux fixes
 	this._interimJitterMs = 15_000; // ±15s pour désynchroniser
 	this._interimClaimKey = 'lastInterimSentKey'; // anti-doublon cross-onglets
   }
