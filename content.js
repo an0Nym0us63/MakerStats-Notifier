@@ -149,6 +149,10 @@ class ValueMonitor {
     this.notifySummaryMode = false;
     this._telegramMaxMessageChars = 4000;
     this._suspiciousDeltaLimit = 200;
+	this._interimTimers = [];
+	this._interimSlots = ['09:00','12:00','15:00','16:00','22:00']; // créneaux fixes
+	this._interimJitterMs = 15_000; // ±15s pour désynchroniser
+	this._interimClaimKey = 'lastInterimSentKey'; // anti-doublon cross-onglets
   }
 
   // logging shorthands (preserve outputs)
@@ -156,6 +160,75 @@ class ValueMonitor {
   warn(...a){ console.warn(...a); }
   error(...a){ console.error(...a); }
 	 // --- ENVOI SNAPSHOT DE TOUS LES MODÈLES ---
+  _nextOccurrenceFor(timeStr) {
+  const [h, m] = String(timeStr).split(':').map(Number);
+  const now = new Date();
+  const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h||0, m||0, 0, 0);
+  if (dt <= now) dt.setDate(dt.getDate() + 1);
+  return dt;
+}
+
+_clearInterimTimers() {
+  for (const t of this._interimTimers) clearTimeout(t);
+  this._interimTimers = [];
+}
+
+// retournne une clé unique pour le créneau du jour (ex: "2025-10-14T09:00")
+_makeInterimSlotKey(dateObj, timeStr) {
+  const pad = n => String(n).padStart(2,'0');
+  return `${dateObj.getFullYear()}-${pad(dateObj.getMonth()+1)}-${pad(dateObj.getDate())}T${timeStr}`;
+}
+
+// planifie un seul créneau (avec jitter & auto-reschedule)
+_scheduleOneInterim(timeStr) {
+  const target = this._nextOccurrenceFor(timeStr);
+  const baseDelay = Math.max(0, target - Date.now());
+  const jitter = Math.floor((Math.random() * 2 - 1) * this._interimJitterMs); // [-jitter;+jitter]
+  const delay = Math.max(0, baseDelay + jitter);
+
+  this.log(`Interim "${timeStr}" prévu à ${new Date(Date.now()+delay).toLocaleString()} (base=${baseDelay}ms, jitter=${jitter}ms)`);
+
+  const timerId = setTimeout(async () => {
+    try {
+      // anti-doublon inter-onglets : on "claim" la fenêtre de tir
+      const slotKey = this._makeInterimSlotKey(new Date(), timeStr); // date du jour courant
+      const store = await new Promise(res => chrome.storage.local.get([this._interimClaimKey], v => res(v||{})));
+      const lastKey = store?.[this._interimClaimKey];
+
+      if (lastKey === slotKey) {
+        this.log(`Interim ${timeStr}: déjà envoyé pour ce créneau (${slotKey}), on skip.`);
+      } else {
+        // petit "claim" optimiste (meilleur-effort)
+        await new Promise(r => chrome.storage.local.set({ [this._interimClaimKey]: slotKey }, () => r()));
+        this.log(`Interim ${timeStr}: envoi… (slot=${slotKey})`);
+        try {
+          await this.handleInterimSummaryRequest();
+        } catch (e) {
+          this.warn(`Interim ${timeStr}: échec d'envoi`, e);
+          // en cas d'échec on ne "déclaim" pas — ce n’est pas critique pour de la notif
+        }
+      }
+    } catch (e) {
+      this.error(`Interim ${timeStr}: erreur inattendue`, e);
+    } finally {
+      // replanifie ce créneau pour le lendemain
+      this._scheduleOneInterim(timeStr);
+    }
+  }, delay);
+
+  this._interimTimers.push(timerId);
+}
+
+// planifie les 4 interims du jour
+scheduleInterimNotifications() {
+  this._clearInterimTimers();
+  const slots = Array.isArray(this._interimSlots) && this._interimSlots.length
+    ? this._interimSlots
+    : ['09:00','12:00','16:00','22:00'];
+
+  for (const s of slots) this._scheduleOneInterim(s);
+  this.log(`Interim scheduling actif pour: ${slots.join(', ')}`);
+}
   async sendModelsSnapshot() {
     const current = this.getCurrentValues();
     if (!current || !current.models || !Object.keys(current.models).length) {
@@ -856,6 +929,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
 
       scheduleNext();
       if (config.dailyReport !== 'no') this.scheduleDailyNotification();
+	  this.scheduleInterimNotifications();
       this.log(`Monitor started, refresh every ${intervalToUse/60000} minutes (configured ${refreshInterval/60000} minutes)`);
     });
   }
