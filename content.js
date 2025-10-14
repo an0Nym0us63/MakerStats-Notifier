@@ -338,7 +338,7 @@ class ValueMonitor {
   // reward math
   getRewardInterval(totalDownloads){ if (totalDownloads <= 50) return 10; if (totalDownloads <= 500) return 25; if (totalDownloads <= 1000) return 50; return 100; }
   nextRewardDownloads(totalDownloads){ const interval = this.getRewardInterval(totalDownloads); const mod = totalDownloads % interval; return (totalDownloads === 0 || mod === 0) ? totalDownloads + interval : totalDownloads + (interval - mod); }
-  getRewardPointsForDownloads(thresholdDownloads){ if (thresholdDownloads <= 50) return 15; if (thresholdDownloads <= 500) return 12; if (thresholdDownloads <= 1000) return 20; return 30; }
+  getRewardPointsForDownloads(thresholdDownloads){ if (thresholdDownloads <= 50) return 15+3; if (thresholdDownloads <= 500) return 12+3; if (thresholdDownloads <= 1000) return 20+5; return 30+8; }
   calculateDownloadsEquivalent(downloads, prints){ return Number(downloads||0) + (Number(prints||0) * 2); }
 
   // storage lock helpers
@@ -465,7 +465,7 @@ class ValueMonitor {
         const mod = cursor % interval;
         const nextThreshold = (cursor === 0 || mod === 0) ? cursor + interval : cursor + (interval - mod);
         if (nextThreshold <= currDownloadsTotal) {
-          const rewardPoints = this.getRewardPointsForDownloads(nextThreshold);
+          const rewardPoints = this.getRewardPointsForDownloads(nextThreshold)*1.25;
           thresholdsHit.push({ threshold: nextThreshold, rewardPoints });
           rewardPointsTotal += rewardPoints;
           cursor = nextThreshold; thresholdsCount++;
@@ -602,7 +602,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
             const interval = this.getRewardInterval(cursor), mod = cursor % interval;
             const nextThreshold = (cursor === 0 || mod === 0) ? cursor + interval : cursor + (interval - mod);
             this.log(`REWARD-LOOP ${current.name} cursor=${cursor} interval=${interval} nextThreshold=${nextThreshold} currDownloads=${currentDownloadsTotal}`);
-            if (nextThreshold <= currentDownloadsTotal) { const rewardPoints = this.getRewardPointsForDownloads(nextThreshold); modelSummary.rewards.push({ thresholdDownloads: nextThreshold, points: rewardPoints }); cursor = nextThreshold; rewardsFound++; } else break;
+            if (nextThreshold <= currentDownloadsTotal) { const rewardPoints = this.getRewardPointsForDownloads(nextThreshold)*1.25; modelSummary.rewards.push({ thresholdDownloads: nextThreshold, points: rewardPoints }); cursor = nextThreshold; rewardsFound++; } else break;
           }
           if (rewardsFound >= maxRewardsToReport) this.log(`Many rewards earned for ${current.name}. Listed first ${maxRewardsToReport} in summary.`);
         }
@@ -868,7 +868,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
       while (cursor < currTotal && count < maxThresholdsPerModel) {
         const interval = this.getRewardInterval(cursor), mod = cursor % interval;
         const nextThreshold = (cursor===0 || mod===0) ? cursor+interval : cursor+(interval-mod);
-        if (nextThreshold <= currTotal) { const pts = this.getRewardPointsForDownloads(nextThreshold); thresholdsHit.push({ threshold: nextThreshold, points: pts }); rewardPointsTotal += pts; cursor = nextThreshold; count++; } else break;
+        if (nextThreshold <= currTotal) { const pts = this.getRewardPointsForDownloads(nextThreshold)*1.25; thresholdsHit.push({ threshold: nextThreshold, points: pts }); rewardPointsTotal += pts; cursor = nextThreshold; count++; } else break;
       }
       if (thresholdsHit.length) rewardsEarned.push({ id:m.id, name:m.name, thresholds:thresholdsHit.map(t=>t.threshold), rewardPointsTotalForModel:thresholdsHit.reduce((s,t)=>s+t.points,0) });
     }
