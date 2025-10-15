@@ -42,6 +42,10 @@ async function setLocal(o){ return await new Promise(res => chrome.storage.local
 async function openAndRun(url, regionLabel, task) {
   const runId = `${Date.now()}:${regionLabel}:${task}`;
   await setLocal({ mw_orchestrated_mode: true, mw_current_run: runId });
+  const useTranslate = true; // ou lis un flag chrome.storage.sync (ex: forceTranslateCN)
+const effectiveUrl = (regionLabel === 'CN' && useTranslate)
+  ? wrapWithTranslateGoog(url, 'zh-CN', 'fr')
+  : url;
 
   const tab = await chrome.tabs.create({ url, active: false });
 
@@ -88,6 +92,12 @@ chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
 
   console.log(`[MW][${regionLabel}] ${task} finished:`, done ? 'ok' : 'timeout');
   return done;
+}
+function wrapWithTranslateGoog(url, sl='zh-CN', tl='fr') {
+  const u = new URL(url);
+  const host = `${u.hostname.replace(/\./g,'-')}-translate.goog`;
+  const qs = u.search ? u.search + '&' : '?';
+  return `https://${host}${u.pathname}${qs}_x_tr_sl=${sl}&_x_tr_tl=${tl}&_x_tr_hl=${tl}&_x_tr_pto=wapp`;
 }
 
 async function runBothSites(task) {

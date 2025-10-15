@@ -33,7 +33,21 @@ function K(name) {
     res(cfg);
   }));
 })();
+async function waitForTranslationApplied(timeoutMs = 6000) {
+  const t0 = Date.now();
+  const hasHan = () => /[\u4e00-\u9fff]/.test(document.body?.innerText || '');
+  const looksFrench = () => navigator.language?.startsWith('fr') ||
+                           (document.documentElement.lang || '').startsWith('fr');
+  // si pas de Han, pas besoin d’attendre
+  if (!hasHan()) return;
 
+  while ((Date.now() - t0) < timeoutMs) {
+    // si le texte n’a plus de Han → probablement traduit
+    if (!hasHan()) return;
+    await new Promise(r => setTimeout(r, 300));
+  }
+  // on sort quand même — certaines pages gardent du Han (noms propres)
+}
 const escapeHtml = (s = "") =>
   String(s)
     .replace(/&/g, "&amp;")
@@ -1194,7 +1208,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       // Contexte site (EU/CN) + tag
       const cfg = await new Promise(res => chrome.storage.sync.get(null, r => res(r||{})));
+      if (region === 'CN') {
+      const cp = (cfg.chinaPrefix || 'cn_');
+      cfg._ctx = { isCN:true, prefix: cp, label: '[CN]' };
+      __MW_CFG__ = cfg;
+
+      // 2bis) Re-binder les clés qui dépendent de K()
+      const rebindKeys = (m) => {
+        m._dailyLockKey             = K('dailyLock');
+        m._dailyStatsKey            = K('dailyStats');
+        m._lastSuccessfulKey        = K('lastSuccessfulDailyReport');
+        m._dailyRunningRewardKey    = K('dailyRunningRewardPoints');
+        m._dailyRunningRewardDayKey = K('dailyRunningRewardDay');
+        m._interimClaimKey          = K('lastInterimSentKey');
+      };
+      rebindKeys(monitor);
+    } else {
+      // EU “normal”
       cfg._ctx = computeSiteContext(cfg);
+      __MW_CFG__ = cfg;
+    }
 
       const tag = cfg._ctx?.label || (region ? `[${region}]` : '');
 
@@ -1205,7 +1238,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Décorateurs (une seule fois)
       monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
       monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
-
+		await waitForTranslationApplied();
       // Exécuter
       if (task === 'CHECK') {
         await autoScrollToFullBottom();

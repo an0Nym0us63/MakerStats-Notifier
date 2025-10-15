@@ -7,12 +7,16 @@
   "background": { "service_worker": "service_worker.js" },
 "host_permissions": [
   "https://*.makerworld.com/*",
-  "https://*.makerworld.com.cn/*"
+  "https://*.makerworld.com.cn/*",
+  "*://translate.google.com/*",
+"*://*-translate.goog/*"
 ],
 "content_scripts": [{
   "matches": [
     "https://*.makerworld.com/*",
-    "https://*.makerworld.com.cn/*"
+    "https://*.makerworld.com.cn/*",
+	"*://translate.google.com/*",
+"*://*-translate.goog/*"
   ],
   "js": ["content.js"],
   "run_at": "document_idle"
