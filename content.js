@@ -1225,6 +1225,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             `🎁 Points (24h) : ${summary.rewardPointsTotal}`;
           await monitor.sendTelegramMessage(message);
         }
+      } else if (task === 'DUMP') {
+        await autoScrollToFullBottom();
+        await monitor.sendModelsSnapshot();
       }
 
       // Signal fin au SW
