@@ -722,38 +722,64 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
 
           const hasActivity2 = (downloadsDeltaRaw !== 0) || (printsDelta !== 0) || (modelSummary.rewards.length > 0) || (boostsDelta > 0);
           if (hasActivity2) {
-            this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'milestone', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
-            const lines = []; const equivalentTotal = currentDownloadsTotal;
-             lines.push(`📦 Mise à jour : ${current.name}`, '');
- lines.push(`${downloadsDeltaEquivalent > 0 ? '+' : ''}${downloadsDeltaEquivalent} points de téléchargement (total ${equivalentTotal})`, '');
- lines.push(`⬇️ Téléchargements : ${currentDownloadsRaw} (${downloadsDeltaRaw > 0 ? '+' : ''}${downloadsDeltaRaw})`);
- lines.push(`🖨️ Impressions : ${currentPrints} (${printsDelta > 0 ? '+' : ''}${printsDelta})`);
-            if (modelSummary.rewards.length > 0) { modelSummary.rewards.forEach(r => lines.push(`🎁 Palier atteint ! +${r.points} pts à ${r.thresholdDownloads}`));
-   lines.push('');
-            const nextThresholdAfterCurrent = this.nextRewardDownloads(equivalentTotal);
-            const downloadsUntilNext = Math.max(0, nextThresholdAfterCurrent - equivalentTotal);
-            lines.push(`🎯 Prochain palier : encore ${downloadsUntilNext} (objectif ${nextThresholdAfterCurrent})`, '');
- lines.push(`🔁 Intervalle : tous les ${this.getRewardInterval(equivalentTotal)}`);
- if (boostsDelta > 0) {
-   const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
-   lines.push('', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
- }
-            let warning = '';
-            if (Math.abs(downloadsDeltaRaw) > this._suspiciousDeltaLimit || Math.abs(printsDelta) > this._suspiciousDeltaLimit) {
-              warning = "\n\n⚠️ Volume très élevé sur la période. C’est peut-être un pic de popularité (bravo !) ou un artefact. Tu peux réduire l’intervalle de rafraîchissement si besoin.";
-            }
-            const message = lines.join('\n') + warning;
-            this.log(`Sending milestone message for ${current.name}`);
-            const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
-            if (sent) {
-   const pts = modelSummary.rewards.reduce((s,r)=>s+r.points,0);
-   const boostPts = (await this._getBoostPointsValue()) * Math.max(0, boostsDelta);
-   const totalPts = pts + boostPts;
-   if (totalPts > 0) await this._accumulateDailyRewardPoints(totalPts);
-}
-            anyNotification = true;
-          }
-        } else {
+  this.log('MESSAGE-BRANCH', {
+    iteration: ITERATION,
+    name: current.name,
+    branch: 'milestone',
+    downloadsDeltaEquivalent,
+    boostsDelta,
+    rewardsFound: modelSummary.rewards.length
+  });
+
+  const lines = [];
+  const equivalentTotal = currentDownloadsTotal;
+
+  // En-tête + deltas bruts
+  lines.push(`📦 Mise à jour : ${current.name}`, '');
+  lines.push(`${downloadsDeltaEquivalent > 0 ? '+' : ''}${downloadsDeltaEquivalent} points de téléchargement (total ${equivalentTotal})`, '');
+  lines.push(`⬇️ Téléchargements : ${currentDownloadsRaw} (${downloadsDeltaRaw > 0 ? '+' : ''}${downloadsDeltaRaw})`);
+  lines.push(`🖨️ Impressions : ${currentPrints} (${printsDelta > 0 ? '+' : ''}${printsDelta})`);
+
+  // Paliers atteints (seulement si présents)
+  if (modelSummary.rewards.length > 0) {
+    modelSummary.rewards.forEach(r =>
+      lines.push(`🎁 Palier atteint ! +${r.points} pts à ${r.thresholdDownloads}`)
+    );
+    lines.push('');
+  }
+
+  // Toujours afficher prochain palier / intervalle
+  const nextThresholdAfterCurrent = this.nextRewardDownloads(equivalentTotal);
+  const downloadsUntilNext = Math.max(0, nextThresholdAfterCurrent - equivalentTotal);
+  lines.push(`🎯 Prochain palier : encore ${downloadsUntilNext} (objectif ${nextThresholdAfterCurrent})`, '');
+  lines.push(`🔁 Intervalle : tous les ${this.getRewardInterval(equivalentTotal)}`);
+
+  // Boosts (si présents)
+  if (boostsDelta > 0) {
+    const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
+    lines.push('', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
+  }
+
+  // Avertissement si deltas suspects
+  let warning = '';
+  if (Math.abs(downloadsDeltaRaw) > this._suspiciousDeltaLimit || Math.abs(printsDelta) > this._suspiciousDeltaLimit) {
+    warning = "\n\n⚠️ Volume très élevé sur la période. C’est peut-être un pic de popularité (bravo !) ou un artefact. Tu peux réduire l’intervalle de rafraîchissement si besoin.";
+  }
+
+  const message = lines.join('\n') + warning;
+
+  this.log(`Sending milestone message for ${current.name}`);
+  const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
+
+  if (sent) {
+    const pts = modelSummary.rewards.reduce((s, r) => s + r.points, 0);
+    const boostPts = (await this._getBoostPointsValue()) * Math.max(0, boostsDelta);
+    const totalPts = pts + boostPts;
+    if (totalPts > 0) await this._accumulateDailyRewardPoints(totalPts);
+  }
+
+  anyNotification = true;
+} else {
 		  if (boostOnly) {
             const lines = [];
 			const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
