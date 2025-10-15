@@ -1171,37 +1171,42 @@ console.log('Initializing monitor...');
   await monitor.start();
 })();
 
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === 'PING') {
+    sendResponse({ ok: true, pong: true });
+    return; // pas d'async
+  }
+});
+
+
 // content.js — à la fin
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.type !== 'RUN_TASK') return;
 
   const { task, region, runId } = msg;
-	MW_CURRENT_TASK   = task || 'CHECK';
-MW_CURRENT_REGION = region || detectRegion();
+  MW_CURRENT_TASK   = task || 'CHECK';
+  MW_CURRENT_REGION = region || detectRegion();
+
+  // ✅ Réponse immédiate pour éviter les warnings “async…”
+  sendResponse({ ok: true, accepted: true });
+
   (async () => {
     try {
-      // IMPORTANT: re-compute site context (EU/CN) & set label/prefix
+      // Contexte site (EU/CN) + tag
       const cfg = await new Promise(res => chrome.storage.sync.get(null, r => res(r||{})));
       cfg._ctx = computeSiteContext(cfg);
 
-      // Tagger tous les messages sortants
       const tag = cfg._ctx?.label || (region ? `[${region}]` : '');
-const origSend  = monitor.sendTelegramMessage.bind(monitor);
-const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
-      // décorateurs
-monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
-monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
 
-      if (typeof monitor.sendTelegramMessage === 'function') {
-        const origSend = monitor.sendTelegramMessage.bind(monitor);
-        monitor.sendTelegramMessage = (m, ...rest) => origSend(decorate(m), ...rest);
-      }
-      if (typeof monitor.sendTelegramMessageWithPhoto === 'function') {
-        const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
-        monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(decorate(m), photo, ...rest);
-      }
-	try {
-      // Exécuter la tâche demandée
+      // Sauvegarde des méthodes originales
+      const origSend  = monitor.sendTelegramMessage.bind(monitor);
+      const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
+
+      // Décorateurs (une seule fois)
+      monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
+      monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
+
+      // Exécuter
       if (task === 'CHECK') {
         await autoScrollToFullBottom();
         await monitor.checkAndNotify();
@@ -1211,7 +1216,6 @@ monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} 
       } else if (task === 'DAILY') {
         const summary = await monitor.getDailySummary({ persist: true });
         if (summary) {
-          // réutilise ton gabarit existant “daily”
           const message =
             `📊 ${tag} Récap 24h (${summary.from} → ${summary.to})\n\n` +
             `Points de téléchargement : ${summary.dailyDownloads + (summary.dailyPrints * 2)}\n` +
@@ -1223,21 +1227,48 @@ monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} 
         }
       }
 
-      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId });
-      sendResponse && sendResponse({ ok: true });
-	} finally {
-  // restauration impérative
-  monitor.sendTelegramMessage = origSend;
-  monitor.sendTelegramMessageWithPhoto = origSendP;
-}
+      // Signal fin au SW
+      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId, ok: true });
     } catch (e) {
-      console.error('[MW][content] task error', task, e);
-      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId, ok:false, error:String(e) });
-      sendResponse && sendResponse({ ok: false, error: String(e) });
+      console.error('[MW][content] RUN_TASK error', task, e);
+      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId, ok: false, error: String(e) });
+    } finally {
+      // Restaure les méthodes originales
+      try {
+        monitor.sendTelegramMessage = origSend;
+        monitor.sendTelegramMessageWithPhoto = origSendP;
+      } catch(_) {}
     }
   })();
 
-  return true; // async
+  // ⛔️ Ne pas “return true” (on n’attend plus une réponse async)
 });
-const monitor = new ValueMonitor();
-monitor.start();
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg) return;
+
+  if (msg.type === 'INTERIM_SUMMARY_REQUEST') {
+    (async () => {
+      try {
+        await autoScrollToFullBottom();
+        await monitor.handleInterimSummaryRequest();
+        sendResponse && sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse && sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true; // ici on attend la réponse async
+  }
+
+  if (msg.type === 'DUMP_MODELS') {
+    (async () => {
+      try {
+        await monitor.sendModelsSnapshot();
+        sendResponse && sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse && sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+});
