@@ -147,9 +147,9 @@
   }
 })();
 
-function sendToSW(action, payload = {}) {
+function sendToSW(type, payload = {}) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: action, from: 'popup', ...payload }, (resp) => {
+    chrome.runtime.sendMessage({ type, ...payload }, (resp) => {
       if (chrome.runtime.lastError) {
         console.error('[POPUP] SW message error:', chrome.runtime.lastError);
         resolve({ ok: false, error: String(chrome.runtime.lastError.message || chrome.runtime.lastError) });

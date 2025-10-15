@@ -21,12 +21,23 @@ async function openAndRun(url, regionLabel, task) {
   const hardClose = setTimeout(async () => { try { await chrome.tabs.remove(tab.id); } catch {} }, ORCH.DWELL_MS);
 
   // dès que le content est prêt, on lui envoie la tâche
-  chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-    if (tabId === tab.id && info.status === 'complete') {
-      chrome.tabs.onUpdated.removeListener(listener);
-      chrome.tabs.sendMessage(tab.id, { type: 'RUN_TASK', task, region: regionLabel, runId });
-    }
-  });
+chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+  if (tabId === tab.id && info.status === 'complete') {
+    chrome.tabs.onUpdated.removeListener(listener);
+    // 1) injecte le content script si non présent
+    chrome.scripting.executeScript(
+      { target: { tabId: tab.id }, files: ['content.js'] },
+      () => {
+        // 2) envoie la tâche une fois injecté
+        chrome.tabs.sendMessage(tab.id, { type: 'RUN_TASK', task, region: regionLabel, runId }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('[MW] send RUN_TASK error:', chrome.runtime.lastError.message);
+          }
+        });
+      }
+    );
+  }
+});
 
   const done = await new Promise(resolve => {
     const t = setTimeout(() => resolve(false), ORCH.AWAIT_MS);
