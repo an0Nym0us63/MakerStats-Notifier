@@ -466,7 +466,7 @@ scheduleInterimNotifications() {
   }
 
   // robust daily summary computation and storage
-  async getDailySummary() {
+  async getDailySummary({ persist = true } = {}) {
     const currentValues = this.getCurrentValues();
     if (!currentValues) { this.error('Unable to get current values'); return null; }
     this.log('getDailySummary START — now:', new Date().toISOString());
@@ -498,10 +498,12 @@ scheduleInterimNotifications() {
     if (!previousDay) {
       this.log('getDailySummary: No previous day data available or snapshot unusable. Writing current snapshot and returning empty summary.');
       const periodKey = await this.getCurrentPeriodKey();
-      chrome.storage.local.set({ [this._dailyStatsKey]: { models: currentValues.models, points: currentValues.points, timestamp: Date.now(), owner: this._instanceId, periodKey } }, () => {
-        this.log('getDailySummary: stored dailyStats ts=', new Date().toISOString(), 'modelsCount=', Object.keys(currentValues.models || {}).length, 'owner=', this._instanceId, 'periodKey=', periodKey);
-      });
-      chrome.storage.local.set({ [this._dailyRunningRewardKey]: 0, [this._dailyRunningRewardDayKey]: periodKey, [this._lastSuccessfulKey]: { state:'SENT', owner:this._instanceId, sentAt:Date.now(), periodKey, snapshot:{ models: currentValues.models, points: currentValues.points, timestamp: Date.now() }, rewardPointsTotal:0 } });
+      if (persist) {
+        chrome.storage.local.set({ [this._dailyStatsKey]: { models: currentValues.models, points: currentValues.points, timestamp: Date.now(), owner: this._instanceId, periodKey } }, () => {
+          this.log('getDailySummary: stored dailyStats ts=', new Date().toISOString(), 'modelsCount=', Object.keys(currentValues.models || {}).length, 'owner=', this._instanceId, 'periodKey=', periodKey);
+        });
+        chrome.storage.local.set({ [this._dailyRunningRewardKey]: 0, [this._dailyRunningRewardDayKey]: periodKey, [this._lastSuccessfulKey]: { state:'SENT', owner:this._instanceId, sentAt:Date.now(), periodKey, snapshot:{ models: currentValues.models, points: currentValues.points, timestamp: Date.now() }, rewardPointsTotal:0 } });
+      }
       return { dailyDownloads:0, dailyPrints:0, points: currentValues.points, pointsGained:0, top5Downloads:[], top5Prints:[], rewardsEarned:[], rewardPointsTotal:0, from:new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), to:new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) };
     }
 
@@ -548,10 +550,12 @@ scheduleInterimNotifications() {
     }
 
     const periodKey = await this.getCurrentPeriodKey();
-    chrome.storage.local.set({ [this._dailyStatsKey]: { models: currentValues.models, points: currentValues.points, timestamp: Date.now(), owner: this._instanceId, periodKey } }, () => {
-      this.log('getDailySummary: updated dailyStats ts=', new Date().toISOString(), 'modelsCount=', Object.keys(currentValues.models || {}).length, 'owner=', this._instanceId, 'periodKey', periodKey);
-    });
-    chrome.storage.local.set({ [this._dailyRunningRewardKey]: 0, [this._dailyRunningRewardDayKey]: periodKey, [this._lastSuccessfulKey]: { state:'SENT', owner:this._instanceId, sentAt:Date.now(), periodKey, snapshot:{ models: currentValues.models, points: currentValues.points, timestamp: Date.now() }, rewardPointsTotal:0 } });
+    if (persist) {
+      chrome.storage.local.set({ [this._dailyStatsKey]: { models: currentValues.models, points: currentValues.points, timestamp: Date.now(), owner: this._instanceId, periodKey } }, () => {
+        this.log('getDailySummary: updated dailyStats ts=', new Date().toISOString(), 'modelsCount=', Object.keys(currentValues.models || {}).length, 'owner=', this._instanceId, 'periodKey', periodKey);
+      });
+      chrome.storage.local.set({ [this._dailyRunningRewardKey]: 0, [this._dailyRunningRewardDayKey]: periodKey, [this._lastSuccessfulKey]: { state:'SENT', owner:this._instanceId, sentAt:Date.now(), periodKey, snapshot:{ models: currentValues.models, points: currentValues.points, timestamp: Date.now() }, rewardPointsTotal:0 } });
+    }
 
     return { dailyDownloads, dailyPrints, points: currentValues.points, pointsGained: currentValues.points - previousDay.points, top5Downloads, top5Prints, rewardsEarned, rewardPointsTotal, from: new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), to: new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) };
   }
@@ -715,6 +719,15 @@ Total Reward Points: ${summary.rewardPointsTotal}
             anyNotification = true;
           }
         } else {
+		  if (boostOnly) {
+            const lines = [];
+            lines.push(`⚡ Boost Update for: ${current.name}`, '', `⚡ Boosts: +${boostsDelta} (now ${currentBoosts})`);
+            const message = lines.join('\n');
+            this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'boost-only', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
+            this.log(`Sending boost-only message for ${current.name}`);
+            const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
+            anyNotification = true; continue;
+          }
           const hasActivity3 = (downloadsDeltaRaw !== 0) || (printsDelta !== 0) || (modelSummary.rewards.length > 0) || (boostsDelta > 0);
           if (hasActivity3) modelsActivity.push({
             id,
@@ -761,7 +774,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
         if (!running || runningDay !== currentPeriod) {
           this.log('Periodic summary: running counter missing or mismatched; computing fallback via getDailySummary');
           try {
-            const computed = await this.getDailySummary();
+            const computed = await this.getDailySummary({ persist: false });
             if (computed && Number.isFinite(computed.rewardPointsTotal)) {
               running = computed.rewardPointsTotal;
               try { chrome.storage.local.set({ [this._dailyRunningRewardKey]: running, [this._dailyRunningRewardDayKey]: currentPeriod }, () => { this.log('Periodic summary: persisted computed running counter', { running, period: currentPeriod }); }); } catch (err) { this.warn('Periodic summary: failed to persist computed running counter', err); }
