@@ -779,7 +779,8 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
   }
 
   anyNotification = true;
-} else {
+} 
+		}else {
 		  if (boostOnly) {
             const lines = [];
 			const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
