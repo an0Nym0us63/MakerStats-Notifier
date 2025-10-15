@@ -6,13 +6,13 @@
   "permissions": ["alarms", "tabs", "storage", "scripting"],
   "background": { "service_worker": "service_worker.js" },
 "host_permissions": [
-  "https://makerworld.com/*",
-  "https://makerworld.cn/*"
+  "https://*.makerworld.com/*",
+  "https://*.makerworld.com.cn/*"
 ],
 "content_scripts": [{
   "matches": [
-    "https://makerworld.com/*",
-    "https://makerworld.cn/*"
+    "https://*.makerworld.com/*",
+    "https://*.makerworld.com.cn/*"
   ],
   "js": ["content.js"],
   "run_at": "document_idle"
