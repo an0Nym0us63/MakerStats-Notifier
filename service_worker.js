@@ -4,8 +4,8 @@ const ORCH = {
   ALARM_CHECK:  'mw-check',
   ALARM_DAILY:  'mw-daily',
   ALARM_INTERIM:'mw-interim',
-  DWELL_MS: 25_000,   // garde-fou par site
-  AWAIT_MS: 90_000,   // timeout attente CONTENT_DONE
+  DWELL_MS: 250_000,   // garde-fou par site
+  AWAIT_MS: 300_000,   // timeout attente CONTENT_DONE
 };
 async function pingContent(tabId, maxTries = 12, delayMs = 250) {
   for (let i = 0; i < maxTries; i++) {
@@ -51,10 +51,6 @@ async function openAndRun(url, regionLabel, task) {
   // ⚠️ utiliser effectiveUrl (et pas url)
   const tab = await chrome.tabs.create({ url: effectiveUrl, active: false });
 
-  const hardClose = setTimeout(async () => {
-    try { await chrome.tabs.remove(tab.id); } catch {}
-  }, ORCH.DWELL_MS);
-
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
       chrome.tabs.onUpdated.removeListener(listener);
@@ -96,7 +92,6 @@ async function openAndRun(url, regionLabel, task) {
     chrome.runtime.onMessage.addListener(onMsg);
   });
 
-  clearTimeout(hardClose);
   try { await chrome.tabs.remove(tab.id); } catch {}
   console.log(`[MW][${regionLabel}] ${task} finished:`, done ? 'ok' : 'timeout');
   return done;
