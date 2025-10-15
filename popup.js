@@ -147,9 +147,14 @@
   }
 })();
 
-function sendToSW(type, payload = {}) {
+function sendToSW(action, payload = {}) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type, ...payload }, (resp) => {
+    chrome.runtime.sendMessage({ type: action, from: 'popup', ...payload }, (resp) => {
+      if (chrome.runtime.lastError) {
+        console.error('[POPUP] SW message error:', chrome.runtime.lastError);
+        resolve({ ok: false, error: String(chrome.runtime.lastError.message || chrome.runtime.lastError) });
+        return;
+      }
       resolve(resp || { ok: false });
     });
   });

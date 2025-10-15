@@ -124,6 +124,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 // Permettre le “Reschedule” depuis le popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+	 console.log('[SW] onMessage', msg); // keep this while testing
   if (msg && msg.type === 'MW_RESCHEDULE') {
     scheduleAll().then(() => sendResponse({ ok: true }))
                  .catch(err => sendResponse({ ok: false, error: String(err) }));
