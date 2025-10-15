@@ -1192,13 +1192,13 @@ const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
 monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
 monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
 
-      if (typeof this.sendTelegramMessage === 'function') {
-        const origSend = this.sendTelegramMessage.bind(this);
-        this.sendTelegramMessage = (m, ...rest) => origSend(decorate(m), ...rest);
+      if (typeof monitor.sendTelegramMessage === 'function') {
+        const origSend = monitor.sendTelegramMessage.bind(monitor);
+        monitor.sendTelegramMessage = (m, ...rest) => origSend(decorate(m), ...rest);
       }
-      if (typeof this.sendTelegramMessageWithPhoto === 'function') {
-        const origSendP = this.sendTelegramMessageWithPhoto.bind(this);
-        this.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(decorate(m), photo, ...rest);
+      if (typeof monitor.sendTelegramMessageWithPhoto === 'function') {
+        const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
+        monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(decorate(m), photo, ...rest);
       }
 	try {
       // Exécuter la tâche demandée
@@ -1239,3 +1239,5 @@ monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} 
 
   return true; // async
 });
+const monitor = new ValueMonitor();
+monitor.start();
