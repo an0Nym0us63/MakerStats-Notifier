@@ -47,24 +47,6 @@
   </div>
 
   <hr>
-    <div class="config-section">
-    <h3>Sites</h3>
-
-    <label for="site-url">URL MakerWorld (Europe) :</label>
-    <input type="url" id="site-url" placeholder="https://makerworld.com/..." />
-
-    <label for="china-url">URL MakerWorld (Chine) :</label>
-    <input type="url" id="china-url" placeholder="https://makerworld.com.cn/..." />
-
-    <label for="china-prefix">Préfixe des clés (Chine) :</label>
-    <input type="text" id="china-prefix" placeholder="cn_" value="cn_" />
-    <div class="small-note">
-      Les variables côté Europe gardent les mêmes noms. Côté Chine, elles seront
-      lues/écrites avec ce préfixe (ex. <code>cn_dailyStats</code>) pour éviter tout mélange.
-    </div>
-  </div>
-
-  <hr>
 
   <div class="config-section">
     <div class="row">
@@ -94,19 +76,11 @@
       </div>
     </div>
   </div>
-  
-  <hr>
-<section>
-  <h3>Orchestration</h3>
-  <div style="display:flex; gap:.5rem; flex-wrap:wrap">
-    <button id="btnRunNowBoth" class="btn btn-primary">Lancer séquence (EU → CN)</button>
-    <button id="btnInterimNowBoth" class="btn">Récap intermédiaire (EU → CN)</button>
-  </div>
-  <small id="orchStatus" style="display:block; margin-top:.5rem; opacity:.8"></small>
-</section>
 
   <div class="config-section">
     <button id="save-button">Save</button>
+    <button id="interim-button">Send interim summary now</button>
+	<button id="dump-models">Send models snapshot</button>
 
     <div id="status" class="muted"></div>
   </div>

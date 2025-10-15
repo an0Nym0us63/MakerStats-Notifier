@@ -1,54 +1,6 @@
 const ITERATION = 'Iteration 20.4.1';
 console.log(`Initializing monitor — ${ITERATION}`);
-// en haut du fichier (scope global du content)
-let MW_CURRENT_TASK = null; // 'CHECK' | 'DAILY' | 'INTERIM'
-let MW_CURRENT_REGION = null;
-let monitor;
-let __MW_CFG__ = {};
-function loadSync(keys) {
-  return new Promise(res => chrome.storage.sync.get(keys, v => res(v || {})));
-}
 
-function computeSiteContext(cfg) {
-  const href = location.href;
-  const isCN = !!(cfg.chinaUrl && href.startsWith(cfg.chinaUrl));
-  const prefix = isCN ? (cfg.chinaPrefix || 'cn_') : ''; // vide pour EU
-  const label  = isCN ? '[CN]' : '[EU]';
-  return { isCN, prefix, label };
-}
-
-function detectRegion() {
-  const href = (location && location.href || '').toLowerCase();
-  // adapte si tu as un domaine précis pour CN
-  return (/\.cn\b|china|\/cn\//.test(href)) ? 'CN' : 'EU';
-}
-
-function K(name) {
-  const p = __MW_CFG__._ctx?.prefix || '';
-  return p ? (p + name) : name;
-}
-(async () => {
-  __MW_CFG__ = await new Promise(res => chrome.storage.sync.get(null, r => {
-    const cfg = r || {};
-    cfg._ctx = computeSiteContext(cfg);
-    res(cfg);
-  }));
-})();
-async function waitForTranslationApplied(timeoutMs = 6000) {
-  const t0 = Date.now();
-  const hasHan = () => /[\u4e00-\u9fff]/.test(document.body?.innerText || '');
-  const looksFrench = () => navigator.language?.startsWith('fr') ||
-                           (document.documentElement.lang || '').startsWith('fr');
-  // si pas de Han, pas besoin d’attendre
-  if (!hasHan()) return;
-
-  while ((Date.now() - t0) < timeoutMs) {
-    // si le texte n’a plus de Han → probablement traduit
-    if (!hasHan()) return;
-    await new Promise(r => setTimeout(r, 300));
-  }
-  // on sort quand même — certaines pages gardent du Han (noms propres)
-}
 const escapeHtml = (s = "") =>
   String(s)
     .replace(/&/g, "&amp;")
@@ -184,12 +136,11 @@ class ValueMonitor {
     this.isChecking = false;
     // identity/keys/timeouts
     this._instanceId = Math.random().toString(36).slice(2);
-    this._dailyLockKey              = K('dailyLock');
-this._dailyStatsKey             = K('dailyStats');
-this._lastSuccessfulKey         = K('lastSuccessfulDailyReport');
-this._dailyRunningRewardKey     = K('dailyRunningRewardPoints');
-this._dailyRunningRewardDayKey  = K('dailyRunningRewardDay');
-this._interimClaimKey           = K('lastInterimSentKey');
+    this._dailyLockKey = 'dailyLock';
+    this._dailyStatsKey = 'dailyStats';
+    this._lastSuccessfulKey = 'lastSuccessfulDailyReport';
+    this._dailyRunningRewardKey = 'dailyRunningRewardPoints';
+    this._dailyRunningRewardDayKey = 'dailyRunningRewardDay';
     this._dailyLockTimeoutMs = 2 * 60 * 1000;
     this._dailyMaxPreSendRetries = 5;
     this._dailyPreSendBaseBackoffMs = 300;
@@ -201,6 +152,7 @@ this._interimClaimKey           = K('lastInterimSentKey');
 	this._interimTimers = [];
 	this._interimSlots = ['07:00','12:00','16:00','22:00']; // créneaux fixes
 	this._interimJitterMs = 15_000; // ±15s pour désynchroniser
+	this._interimClaimKey = 'lastInterimSentKey'; // anti-doublon cross-onglets
 	this._boostPointsDefault = 15;
   }
 
@@ -215,13 +167,6 @@ this._interimClaimKey           = K('lastInterimSentKey');
   const dt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h||0, m||0, 0, 0);
   if (dt <= now) dt.setDate(dt.getDate() + 1);
   return dt;
-}
-_cleanupLegacyTimers() {
-  try {
-    if (this.checkInterval) { clearInterval(this.checkInterval); this.checkInterval = null; }
-    if (this._dailyTimerId) { clearTimeout(this._dailyTimerId); this._dailyTimerId = null; }
-  } catch (_) {}
-  try { sessionStorage.removeItem('monitorNextScheduledTime'); } catch (_) {}
 }
   async _getBoostPointsValue() {
     try {
@@ -1011,86 +956,87 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
     }
   }
 
-  async loadPreviousValues(){
-  const key = K('previousValues');
-  return new Promise(resolve => chrome.storage.local.get([key], result => {
-    if (result && result[key]) { this.log('Previous values loaded:', result[key]); this.previousValues = result[key]; }
-    resolve();
-  }));
-}
-
-async savePreviousValues(values){
-  const key = K('previousValues');
-  return new Promise(resolve => chrome.storage.local.set({ [key]: values }, () => {
-    this.log('Values saved to storage'); resolve();
-  }));
-}
+  // previousValues persistence
+  async loadPreviousValues(){ return new Promise(resolve => chrome.storage.local.get(['previousValues'], result => { if (result?.previousValues) { this.log('Previous values loaded:', result.previousValues); this.previousValues = result.previousValues; } resolve(); })); }
+  async savePreviousValues(values){ return new Promise(resolve => chrome.storage.local.set({ previousValues: values }, () => { this.log('Values saved to storage'); resolve(); })); }
 
   // lifecycle
   async start() {
-  this.log('Starting (executor mode)…');
+    this.log('Starting monitor...');
+    if (this.checkInterval) { this.log('Monitor already running, skipping duplicate start.'); return; }
+    chrome.storage.sync.get(['telegramToken','chatId','refreshInterval','dailyReport','dailyNotificationTime','notifySummaryMode'], async (config) => {
+      if (!config || !config.telegramToken || !config.chatId) { this.error('Missing Telegram configuration'); return; }
+      this.telegramToken = config.telegramToken; this.chatId = config.chatId; this.notifySummaryMode = !!config.notifySummaryMode;
+      const refreshInterval = config.refreshInterval || 900000;
+      this.log(`Configured refresh interval: ${refreshInterval}ms`); this.log(`Notify summary mode: ${this.notifySummaryMode}`);
+      let intervalToUse = refreshInterval; const ONE_HOUR = 60*60*1000; const COMPENSATION_MS = 60*1000;
+      if (refreshInterval > ONE_HOUR) { intervalToUse = Math.max(0, refreshInterval - COMPENSATION_MS); this.log(`Interval adjusted for overhead: using ${intervalToUse}ms instead of configured ${refreshInterval}ms`); }
+      else this.log(`Interval not adjusted (configured <= 1 hour): using ${intervalToUse}ms`);
+      await autoScrollToFullBottom();
+      await this.loadPreviousValues();
+      await this.checkAndNotify();
+      if (this.checkInterval) { clearInterval(this.checkInterval); this.checkInterval = null; }
+      const STORAGE_KEY = 'monitorNextScheduledTime';
+      let nextScheduled = Number(sessionStorage.getItem(STORAGE_KEY));
 
-  // coupe tout héritage d’anciens timers
-  this._cleanupLegacyTimers();
+      if (!nextScheduled) {
+        nextScheduled = Date.now() + intervalToUse;
+        this.log('Initializing schedule. First run at:', new Date(nextScheduled).toLocaleString());
+        sessionStorage.setItem(STORAGE_KEY, nextScheduled);
+      }
 
-  // charge config minimale (juste pour token/chat + mode résumé)
-  const cfg = await new Promise(res =>
-    chrome.storage.sync.get(
-      ['telegramToken','chatId','notifySummaryMode'],
-      r => res(r || {})
-    )
-  );
+      const scheduleNext = () => {
+        const now = Date.now();
 
-  if (!cfg || !cfg.telegramToken || !cfg.chatId) {
-    this.error('Missing Telegram configuration');
-    return;
+        if (now > nextScheduled) {
+          this.warn(`Missed scheduled time by ${Math.round((now - nextScheduled)/1000)}s. Running now.`);
+          while (nextScheduled < now) {
+            nextScheduled += intervalToUse;
+          }
+          sessionStorage.setItem(STORAGE_KEY, nextScheduled);
+        }
+
+        const delay = Math.max(0, nextScheduled - now);
+        this.log(`Next check scheduled for ${new Date(nextScheduled).toLocaleString()} (in ${Math.round(delay/1000)}s)`);
+
+        this.checkInterval = setTimeout(async () => {
+          try {
+            this.log('Scrolling before refresh...');
+            await autoScrollToFullBottom();
+            this.log('Refreshing page...');
+          } catch (err) {
+            this.error('Error during pre-refresh tasks:', err);
+          }
+
+          const newNextScheduled = nextScheduled + intervalToUse;
+          sessionStorage.setItem(STORAGE_KEY, newNextScheduled);
+
+          try { scheduleNext(); } catch (e) { this.error('Failed to schedule next run:', e); }
+          try { window.location.reload(); } catch (e) { this.error('Reload failed:', e); }
+        }, delay);
+      };
+
+      scheduleNext();
+      if (config.dailyReport !== 'no') this.scheduleDailyNotification();
+	  this.scheduleInterimNotifications();
+      this.log(`Monitor started, refresh every ${intervalToUse/60000} minutes (configured ${refreshInterval/60000} minutes)`);
+    });
   }
 
-  this.telegramToken = cfg.telegramToken;
-  this.chatId = cfg.chatId;
-  this.notifySummaryMode = !!cfg.notifySummaryMode;
-
-  // exécute UNE passe
-  try { await autoScrollToFullBottom(); } catch (e) { this.warn('autoScrollToFullBottom failed:', e); }
-  try { await this.loadPreviousValues(); } catch (e) { this.warn('loadPreviousValues failed:', e); }
-  try { await this.checkAndNotify(); } catch (e) { this.error('checkAndNotify error:', e); }
-
-  // si orchestré, on signale la fin au service worker puis on sort
-  const { mw_orchestrated_mode, mw_current_run } = await new Promise(res =>
-  chrome.storage.local.get(['mw_orchestrated_mode','mw_current_run'], r => res(r || {}))
-);
-
-if (mw_orchestrated_mode) {
-  const region = detectRegion();
-  const task = MW_CURRENT_TASK || 'CHECK';   // <= récupère la tâche courante
-  try {
-    chrome.runtime.sendMessage({ type: 'CONTENT_DONE', region, runId: mw_current_run || null, task });
-  } catch (_) {}
-  this.log(`[MW] Orchestrated run done — region=${region}, task=${task}.`);
-  return;
-}
-
-  // ⚠️ Rien d’autre côté content : pas de planning local.
-  this.log('Executor pass complete (no local scheduling).');
-}
-
-stop() {
-  this.log('Stopping (executor mode)…');
-  // nettoie tout timer/héritage
-  try {
+  stop() {
     if (this.checkInterval) { clearInterval(this.checkInterval); this.checkInterval = null; }
     if (this._dailyTimerId) { clearTimeout(this._dailyTimerId); this._dailyTimerId = null; }
-    sessionStorage.removeItem('monitorNextScheduledTime');
-  } catch (_) {}
-  this.isChecking = false;
-  this.log('Monitor stopped');
-}
+    this.isChecking = false;
+    this.log('Monitor stopped');
+  }
 
-async restart() {
-  this.log('Restart requested (executor mode)…');
-  this.stop();          // on s’assure qu’aucun timer ne traîne
-  await this.start();   // une seule passe: scroll → load prev → check → CONTENT_DONE
-}
+  async restart() {
+    this.log('Restarting monitor on request...');
+    this.stop();
+    await autoScrollToFullBottom();
+    await this.checkAndNotify();
+    this.start();
+  }
 
   // interim summary (manual request)
   async handleInterimSummaryRequest() {
@@ -1177,133 +1123,28 @@ this.warn = console.warn.bind(console);
 this.error = console.error.bind(console);
 
 console.log('Initializing monitor...');
-(async function bootstrap() {
-  const all = await new Promise(res => chrome.storage.sync.get(null, r => res(r || {})));
-  all._ctx = computeSiteContext(all);
-  __MW_CFG__ = all;
+const monitor = new ValueMonitor();
+monitor.start();
 
-  monitor = new ValueMonitor();
-  await monitor.start();
-})();
-
+// Listen for popup messages
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg && msg.type === 'PING') {
-    sendResponse({ ok: true, pong: true });
-    return; // pas d'async
-  }
-});
-
-
-// content.js — à la fin
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || msg.type !== 'RUN_TASK') return;
-
-  const { task, region, runId } = msg;
-  MW_CURRENT_TASK   = task || 'CHECK';
-  MW_CURRENT_REGION = region || detectRegion();
-
-  // ✅ Réponse immédiate pour éviter les warnings “async…”
-  sendResponse({ ok: true, accepted: true });
-
-  (async () => {
-    try {
-      // Contexte site (EU/CN) + tag
-      const cfg = await new Promise(res => chrome.storage.sync.get(null, r => res(r||{})));
-      if (region === 'CN') {
-      const cp = (cfg.chinaPrefix || 'cn_');
-      cfg._ctx = { isCN:true, prefix: cp, label: '[CN]' };
-      __MW_CFG__ = cfg;
-
-      // 2bis) Re-binder les clés qui dépendent de K()
-      const rebindKeys = (m) => {
-        m._dailyLockKey             = K('dailyLock');
-        m._dailyStatsKey            = K('dailyStats');
-        m._lastSuccessfulKey        = K('lastSuccessfulDailyReport');
-        m._dailyRunningRewardKey    = K('dailyRunningRewardPoints');
-        m._dailyRunningRewardDayKey = K('dailyRunningRewardDay');
-        m._interimClaimKey          = K('lastInterimSentKey');
-      };
-      rebindKeys(monitor);
-    } else {
-      // EU “normal”
-      cfg._ctx = computeSiteContext(cfg);
-      __MW_CFG__ = cfg;
-    }
-
-      const tag = cfg._ctx?.label || (region ? `[${region}]` : '');
-
-      // Sauvegarde des méthodes originales
-      const origSend  = monitor.sendTelegramMessage.bind(monitor);
-      const origSendP = monitor.sendTelegramMessageWithPhoto.bind(monitor);
-
-      // Décorateurs (une seule fois)
-      monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
-      monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
-		await waitForTranslationApplied(12000);
-        await autoScrollToFullBottom();
-      // Exécuter
-      if (task === 'CHECK') {
-        await monitor.checkAndNotify();
-      } else if (task === 'INTERIM') {
-        await monitor.handleInterimSummaryRequest();
-      } else if (task === 'DAILY') {
-        const summary = await monitor.getDailySummary({ persist: true });
-        if (summary) {
-          const message =
-            `📊 ${tag} Récap 24h (${summary.from} → ${summary.to})\n\n` +
-            `Points de téléchargement : ${summary.dailyDownloads + (summary.dailyPrints * 2)}\n` +
-            `⚡ Boosts gagnés : +${summary.totalBoostsGained||0} → +${summary.boostPointsTotal||0} pts\n\n` +
-            `🏆 Top téléchargements :\n${summary.top5Downloads.length ? summary.top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'Aucun'}\n\n` +
-            `🖨️ Top impressions :\n${summary.top5Prints.length ? summary.top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'Aucune'}\n\n` +
-            `🎁 Points (24h) : ${summary.rewardPointsTotal}`;
-          await monitor.sendTelegramMessage(message);
-        }
-      } else if (task === 'DUMP') {
-        await monitor.sendModelsSnapshot();
-      }
-
-      // Signal fin au SW
-      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId, ok: true });
-    } catch (e) {
-      console.error('[MW][content] RUN_TASK error', task, e);
-      chrome.runtime.sendMessage({ type: 'CONTENT_DONE', task, region, runId, ok: false, error: String(e) });
-    } finally {
-      // Restaure les méthodes originales
-      try {
-        monitor.sendTelegramMessage = origSend;
-        monitor.sendTelegramMessageWithPhoto = origSendP;
-      } catch(_) {}
-    }
-  })();
-
-  // ⛔️ Ne pas “return true” (on n’attend plus une réponse async)
-});
-
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg) return;
-
-  if (msg.type === 'INTERIM_SUMMARY_REQUEST') {
-    (async () => {
-      try {
-        await autoScrollToFullBottom();
-        await monitor.handleInterimSummaryRequest();
-        sendResponse && sendResponse({ ok: true });
-      } catch (e) {
-        sendResponse && sendResponse({ ok: false, error: String(e) });
-      }
-    })();
-    return true; // ici on attend la réponse async
-  }
-
-  if (msg.type === 'DUMP_MODELS') {
-    (async () => {
-      try {
-        await monitor.sendModelsSnapshot();
-        sendResponse && sendResponse({ ok: true });
-      } catch (e) {
-        sendResponse && sendResponse({ ok: false, error: String(e) });
-      }
-    })();
+  if (msg?.type === 'INTERIM_SUMMARY_REQUEST') {
+    monitor.handleInterimSummaryRequest().then(()=>sendResponse({ok:true})).catch(err=>{ console.error('interim summary error', err); sendResponse({ok:false, error: err?.message}); });
     return true;
   }
+  if (msg?.type === 'REFRESH_INTERVAL_UPDATED') {
+    monitor.restart().then(()=>sendResponse({ok:true})).catch(err=>{ console.error('restart error', err); sendResponse({ok:false, error: err?.message}); });
+    return true;
+  }
+  if (msg?.type === 'CONFIG_SAVED') {
+    chrome.storage.sync.get(['notifySummaryMode'], cfg => { monitor.notifySummaryMode = !!(cfg?.notifySummaryMode); monitor.log('CONFIG_SAVED received. notifySummaryMode =', monitor.notifySummaryMode); monitor.restart().then(()=>sendResponse({ok:true})).catch(err=>sendResponse({ok:false, error: err?.message})); });
+    return true;
+  }
+    if (msg?.type === 'DUMP_MODELS') {
+    monitor.sendModelsSnapshot()
+      .then(()=>sendResponse({ok:true}))
+      .catch(err => { console.error('dump models error', err); sendResponse({ok:false, error: err?.message}); });
+    return true;
+  }
+
 });

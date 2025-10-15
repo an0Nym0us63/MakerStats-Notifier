@@ -3,26 +3,29 @@
   "name": "MakerStats Notifier",
   "version": "1.1.0",
   "description": "Sends notifications about prints, downloads, and points earned on MakerWorld (Telegram or ntfy).",
-  "permissions": ["alarms", "tabs", "storage", "scripting"],
-  "background": { "service_worker": "service_worker.js" },
-
-  "host_permissions": [
-    "https://*.makerworld.com/*",
-    "https://*.makerworld.com.cn/*",
-    "*://*.translate.goog/*"
+  "permissions": [
+    "storage",
+    "scripting"
   ],
-
-  "content_scripts": [{
-    "matches": [
-      "https://*.makerworld.com/*",
-      "https://*.makerworld.com.cn/*",
-      "*://*.translate.goog/*"
-    ],
-    "js": ["content.js"],
-    "run_at": "document_idle",
-    "all_frames": true
-  }],
-
-  "action": { "default_popup": "popup.html", "default_icon": "icon.png" },
-  "icons": { "48": "icon.png", "128": "icon.png" }
+  "host_permissions": [
+    "https://makerworld.com/*",
+    "https://api.telegram.org/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://makerworld.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "48": "icon.png",
+    "128": "icon.png"
+  }
 }
