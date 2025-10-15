@@ -14,7 +14,7 @@ const escapeHtml = (s = "") =>
 //   ntfyTags (string, optional), ntfyPriority (1..5, optional)
 async function __sendNtfyWithCfg(cfg, { title, text, imageUrl, clickUrl, tags, priority }) {
   // 💓 1) Ignorer le heartbeat
-  if (text && text.includes('No new prints or downloads found.')) {
+  if (text && (text.includes('No new prints or downloads found.') || text.includes('Aucune nouvelle impression ni téléchargement.'))) {
     console.debug('[MakerStats] ntfy: heartbeat suppressed');
     return true;
   }
@@ -153,6 +153,7 @@ class ValueMonitor {
 	this._interimSlots = ['07:00','12:00','16:00','22:00']; // créneaux fixes
 	this._interimJitterMs = 15_000; // ±15s pour désynchroniser
 	this._interimClaimKey = 'lastInterimSentKey'; // anti-doublon cross-onglets
+	this._boostPointsDefault = 15;
   }
 
   // logging shorthands (preserve outputs)
@@ -167,6 +168,14 @@ class ValueMonitor {
   if (dt <= now) dt.setDate(dt.getDate() + 1);
   return dt;
 }
+  async _getBoostPointsValue() {
+    try {
+      const cfg = await new Promise(res => chrome.storage.sync.get(['boostPointsValue'], r => res(r||{})));
+      const v = Number(cfg?.boostPointsValue);
+      return Number.isFinite(v) && v >= 0 ? v : this._boostPointsDefault;
+    } catch { return this._boostPointsDefault; }
+  }
+
 
 _clearInterimTimers() {
   for (const t of this._interimTimers) clearTimeout(t);
@@ -516,12 +525,13 @@ scheduleInterimNotifications() {
       if (!previous && current.name) { const norm = current.name.trim().toLowerCase(); previous = Object.values(previousDay.models || {}).find(m => m?.name?.trim().toLowerCase() === norm) || null; if (previous) this.log('getDailySummary: matched previous by name', { id, name: current.name }); }
       if (!previous) { this.log('New model found:', current.name, 'id=', id, 'permalink=', current.permalink); continue; }
 
-      const prevDownloads = Number(previous.downloads || 0), prevPrints = Number(previous.prints || 0), currDownloads = Number(current.downloads || 0), currPrints = Number(current.prints || 0);
-      let downloadsGained = currDownloads - prevDownloads, printsGained = currPrints - prevPrints;
-      if (downloadsGained <= 0 && printsGained <= 0) continue;
+      const prevDownloads = Number(previous.downloads || 0), prevPrints = Number(previous.prints || 0), prevBoosts = Number(previous.boosts || 0);
+	  const currDownloads = Number(current.downloads || 0), currPrints = Number(current.prints || 0), currBoosts = Number(current.boosts || 0);
+      let downloadsGained = currDownloads - prevDownloads, printsGained = currPrints - prevPrints, boostsGained = currBoosts - prevBoosts;
+      if (downloadsGained <= 0 && printsGained <= 0 && boostsGained <= 0) continue;
       if (downloadsGained > this._suspiciousDeltaLimit || printsGained > this._suspiciousDeltaLimit) { this.warn('Suspiciously large delta detected, skipping reward calculation for', { id, name: current.name, downloadsGained, printsGained, prevTs: previous.timestamp || null }); continue; }
 
-      modelChanges[id] = { id, name: current.name, downloadsGained, printsGained, previousDownloads: prevDownloads, previousPrints: prevPrints, currentDownloads: currDownloads, currentPrints: currPrints, permalink: current.permalink || previous?.permalink || null };
+      modelChanges[id] = { id, name: current.name, downloadsGained, printsGained, boostsGained, previousDownloads: prevDownloads, previousPrints: prevPrints, currentDownloads: currDownloads, currentPrints: currPrints, permalink: current.permalink || previous?.permalink || null };
     }
 
     const dailyDownloads = Object.values(modelChanges).reduce((s,m)=>s+m.downloadsGained,0);
@@ -556,8 +566,13 @@ scheduleInterimNotifications() {
       });
       chrome.storage.local.set({ [this._dailyRunningRewardKey]: 0, [this._dailyRunningRewardDayKey]: periodKey, [this._lastSuccessfulKey]: { state:'SENT', owner:this._instanceId, sentAt:Date.now(), periodKey, snapshot:{ models: currentValues.models, points: currentValues.points, timestamp: Date.now() }, rewardPointsTotal:0 } });
     }
+	    // points de boosts (agrégés)
+    const boostPointsVal = await this._getBoostPointsValue();
+    const totalBoostsGained = Object.values(modelChanges).reduce((s,m)=>s + (m.boostsGained||0), 0);
+    const boostPointsTotal = totalBoostsGained * boostPointsVal;
+    rewardPointsTotal += boostPointsTotal;
 
-    return { dailyDownloads, dailyPrints, points: currentValues.points, pointsGained: currentValues.points - previousDay.points, top5Downloads, top5Prints, rewardsEarned, rewardPointsTotal, from: new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), to: new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) };
+    return { dailyDownloads, dailyPrints, points: currentValues.points, pointsGained: currentValues.points - previousDay.points, top5Downloads, top5Prints, rewardsEarned, rewardPointsTotal,totalBoostsGained, boostPointsTotal, boostPointsVal, from: new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), to: new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) };
   }
 
   // schedule daily report with locking/claiming
@@ -603,20 +618,24 @@ scheduleInterimNotifications() {
             const totalEquivalent = summary.dailyDownloads + (summary.dailyPrints * 2);
             const topDownloadsList = summary.top5Downloads.length ? summary.top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'No new downloads today';
             const topPrintsList = summary.top5Prints.length ? summary.top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'No new prints today';
-            const message = `
-📊 24-Hour Summary (${summary.from} - ${summary.to}):
+ const message = `
+📊 Récap 24h (${summary.from} → ${summary.to})
 
-Total Download points: ${totalEquivalent}
+Points de téléchargement : ${totalEquivalent}
+⚡ Boosts gagnés : +${summary.totalBoostsGained||0} → +${summary.boostPointsTotal||0} pts
 
-🏆 Today's Most Downloaded:
+🏆 Top téléchargements :
 ${topDownloadsList}
 
-🖨️ Today's Most Printed:
+🖨️ Top impressions :
 ${topPrintsList}
 
-🎁 Rewards earned in last 24 hours:
-${rewardsSection}
-Total Reward Points: ${summary.rewardPointsTotal}
+🎁 Points gagnés (24h) :
+${summary.rewardsEarned?.length
+  ? summary.rewardsEarned.map(r => `${r.name} : +${r.rewardPointsTotalForModel} pts (seuils : ${r.thresholds.join(', ')})`).join('\n')
+  : 'Aucun palier atteint'}
+
+Total points (24h) : ${summary.rewardPointsTotal}
 `.trim();
             const sent = await this.sendTelegramMessage(message);
             if (sent) {
@@ -688,11 +707,16 @@ Total Reward Points: ${summary.rewardPointsTotal}
         if (!this.notifySummaryMode) {
           if (boostOnly) {
             const lines = [];
-            lines.push(`⚡ Boost Update for: ${current.name}`, '', `⚡ Boosts: +${boostsDelta} (now ${currentBoosts})`);
+            const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
+lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
             const message = lines.join('\n');
             this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'boost-only', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
             this.log(`Sending boost-only message for ${current.name}`);
             const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
+ if (sent) {
+   const boostPts = (await this._getBoostPointsValue()) * Math.max(0, boostsDelta);
+   if (boostPts > 0) await this._accumulateDailyRewardPoints(boostPts);
+ }
             anyNotification = true; continue;
           }
 
@@ -700,32 +724,48 @@ Total Reward Points: ${summary.rewardPointsTotal}
           if (hasActivity2) {
             this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'milestone', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
             const lines = []; const equivalentTotal = currentDownloadsTotal;
-            lines.push(`📦 Update for: ${current.name}`, '', `${downloadsDeltaEquivalent > 0 ? '+' : ''}${downloadsDeltaEquivalent} Downloads (total ${equivalentTotal})`, '');
-			lines.push(`⬇️ Downloads: ${currentDownloadsRaw} (${downloadsDeltaRaw > 0 ? '+' : ''}${downloadsDeltaRaw})`);
-            lines.push(`🖨️ Prints: ${currentPrints} (${printsDelta > 0 ? '+' : ''}${printsDelta})`);
-            if (modelSummary.rewards.length > 0) { modelSummary.rewards.forEach(r => lines.push(`🎁 Reward Earned! +${r.points} points at ${r.thresholdDownloads} downloads`)); lines.push(''); }
+             lines.push(`📦 Mise à jour : ${current.name}`, '');
+ lines.push(`${downloadsDeltaEquivalent > 0 ? '+' : ''}${downloadsDeltaEquivalent} points de téléchargement (total ${equivalentTotal})`, '');
+ lines.push(`⬇️ Téléchargements : ${currentDownloadsRaw} (${downloadsDeltaRaw > 0 ? '+' : ''}${downloadsDeltaRaw})`);
+ lines.push(`🖨️ Impressions : ${currentPrints} (${printsDelta > 0 ? '+' : ''}${printsDelta})`);
+            if (modelSummary.rewards.length > 0) { modelSummary.rewards.forEach(r => lines.push(`🎁 Palier atteint ! +${r.points} pts à ${r.thresholdDownloads}`));
+   lines.push('');
             const nextThresholdAfterCurrent = this.nextRewardDownloads(equivalentTotal);
             const downloadsUntilNext = Math.max(0, nextThresholdAfterCurrent - equivalentTotal);
-            lines.push(`🎯 Next Reward: ${downloadsUntilNext} more downloads (${nextThresholdAfterCurrent} total)`, '', `🔁 Reward Interval: every ${this.getRewardInterval(equivalentTotal)} downloads`);
-            if (boostsDelta > 0) lines.push('', `⚡ Boosts: +${boostsDelta} (now ${currentBoosts})`);
+            lines.push(`🎯 Prochain palier : encore ${downloadsUntilNext} (objectif ${nextThresholdAfterCurrent})`, '');
+ lines.push(`🔁 Intervalle : tous les ${this.getRewardInterval(equivalentTotal)}`);
+ if (boostsDelta > 0) {
+   const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
+   lines.push('', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
+ }
             let warning = '';
             if (Math.abs(downloadsDeltaRaw) > this._suspiciousDeltaLimit || Math.abs(printsDelta) > this._suspiciousDeltaLimit) {
-              warning = "\n\n⚠️ The number of downloads or prints during this period is very high. This could be because your model is very popular (good job!). Or it could be an error. You may want to shorten the refresh interval.";
+              warning = "\n\n⚠️ Volume très élevé sur la période. C’est peut-être un pic de popularité (bravo !) ou un artefact. Tu peux réduire l’intervalle de rafraîchissement si besoin.";
             }
             const message = lines.join('\n') + warning;
             this.log(`Sending milestone message for ${current.name}`);
             const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
-            if (sent && modelSummary.rewards.length > 0) { const pts = modelSummary.rewards.reduce((s,r)=>s+r.points,0); await this._accumulateDailyRewardPoints(pts); }
+            if (sent) {
+   const pts = modelSummary.rewards.reduce((s,r)=>s+r.points,0);
+   const boostPts = (await this._getBoostPointsValue()) * Math.max(0, boostsDelta);
+   const totalPts = pts + boostPts;
+   if (totalPts > 0) await this._accumulateDailyRewardPoints(totalPts);
+}
             anyNotification = true;
           }
         } else {
 		  if (boostOnly) {
             const lines = [];
-            lines.push(`⚡ Boost Update for: ${current.name}`, '', `⚡ Boosts: +${boostsDelta} (now ${currentBoosts})`);
+			const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
+ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
             const message = lines.join('\n');
             this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'boost-only', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
             this.log(`Sending boost-only message for ${current.name}`);
             const sent = await this.sendTelegramMessageWithPhoto(message, modelSummary.imageUrl);
+ if (sent) {
+   const boostPts = (await this._getBoostPointsValue()) * Math.max(0, boostsDelta);
+   if (boostPts > 0) await this._accumulateDailyRewardPoints(boostPts);
+ }
             anyNotification = true; continue;
           }
           const hasActivity3 = (downloadsDeltaRaw !== 0) || (printsDelta !== 0) || (modelSummary.rewards.length > 0) || (boostsDelta > 0);
@@ -736,6 +776,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
             currentDownloadsTotal,
             rewardPointsForThisModel: modelSummary.rewards.reduce((s,r)=>s+r.points,0),
             boostsDelta,
+			boostPointsForThisModel: Math.max(0, boostsDelta) * (await this._getBoostPointsValue()),
             // 👉 Ajout minimal pour le rendu
             currentDownloadsRaw,
             currentPrints,
@@ -752,7 +793,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
       const useSummaryMode = this.notifySummaryMode || forceSummaryMode;
 
       if (useSummaryMode) {
-        if (forceSummaryMode) await this.sendTelegramMessage("Switching to summary mode due to the high number of updates this period. This ensures Telegram limits are not reached.");
+        if (forceSummaryMode) await this.sendTelegramMessage("Beaucoup d’activité : passage en mode récap pour éviter les limites Telegram.");
         if (modelsActivity.length === 0) {
           await this.sendTelegramMessage("No new prints or downloads found."); anyNotification = true;
           const prevString = JSON.stringify(this.previousValues||{}), currString = JSON.stringify(currentValues||{});
@@ -761,7 +802,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
         }
 
         const totalEquivalent = modelsActivity.reduce((s,m)=>s + (m.downloadsDeltaEquivalent||0),0);
-        const rewardPointsThisRun = modelsActivity.reduce((s,m)=>s + (m.rewardPointsForThisModel||0),0);
+        const rewardPointsThisRun = modelsActivity.reduce((s,m)=>s + (m.rewardPointsForThisModel||0) + (m.boostPointsForThisModel||0), 0);
         await this._accumulateDailyRewardPoints(rewardPointsThisRun);
 
         const persisted = await new Promise(res => chrome.storage.local.get([this._dailyRunningRewardKey, this._dailyRunningRewardDayKey, this._dailyStatsKey, this._lastSuccessfulKey], r => res(r)));
@@ -784,24 +825,32 @@ Total Reward Points: ${summary.rewardPointsTotal}
 
         let rewardsToday = running - lastDailyPoints; if (rewardsToday < 0) rewardsToday = running;
         const fromTs = new Date(this.previousValues.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-        const headerLines = [`📊 Summary (${fromTs} - ${toTs}):`, '', `Download points this period: ${totalEquivalent} `, '', 'Model updates:', ''];
-        const maxModelsInMessage = 200;
+        const headerLines = [
+  `📊 Récap (${fromTs} → ${toTs})`,
+  '',
+  `Points de téléchargement sur la période : ${totalEquivalent}`,
+  '',
+  'Mises à jour de modèles :',
+  ''
+];const maxModelsInMessage = 200;
         const list = modelsActivity.slice(0, maxModelsInMessage);
         const modelLines=[]; let anyLargeDelta=false;
         list.forEach((m,i) => {
           const downloadsDelta = m.downloadsDeltaEquivalent || 0, total = m.currentDownloadsTotal || 0, interval = m.rewardInterval || this.getRewardInterval(total), nextThreshold = this.nextRewardDownloads(total), remaining = Math.max(0, nextThreshold - total), ptsEarned = m.rewardPointsForThisModel || 0;
-           let line = `${i+1}. <b>${escapeHtml(m.name)}</b>: +${downloadsDelta} (total ${total})`;
+           let line = `${i+1}. <b>${escapeHtml(m.name)}</b> : +${downloadsDelta} (total ${total})`;
           // 👉 Ajout minimal : détails réels
           const dl = m.currentDownloadsRaw || 0;
           const pr = m.currentPrints || 0;
           const dld = m.downloadsDeltaRaw || 0;
           const prd = m.printsDelta || 0;
-          line += ` — DL: ${dl} (${dld >= 0 ? '+' : ''}${dld}), PR: ${pr} (${prd >= 0 ? '+' : ''}${prd})`; 
-		  if (ptsEarned>0) line += `  🎉 +${ptsEarned} pts`; line += ` (needs ${remaining} for next 🎁, interval ${interval})`;
+           line += ` — Téléch. : ${dl} (${dld >= 0 ? '+' : ''}${dld}), Impr. : ${pr} (${prd >= 0 ? '+' : ''}${prd})`;
+ if (ptsEarned>0) line += `  🎉 +${ptsEarned} pts`;
+ if ((m.boostPointsForThisModel||0) > 0) line += `  ⚡ +${m.boostPointsForThisModel} pts (boosts)`;
+ line += `  — reste ${remaining} pour 🎁 (palier ${interval})`;
           if (Math.abs(downloadsDelta) > this._suspiciousDeltaLimit) { line += `\n⚠️ The number of downloads during this period is very high. This could be because your model is very popular (good job!). Or it could be an error. You may want to shorten the refresh interval.`; anyLargeDelta=true; }
           if ((m.boostsDelta || 0) > 0) {
             line += `
-⚡ Boosts: +${m.boostsDelta}`;
+⚡ Boosts : +${m.boostsDelta}`;
           }
 
           modelLines.push(line);
@@ -818,12 +867,12 @@ Total Reward Points: ${summary.rewardPointsTotal}
 		  const remaining = Math.max(0, next - total);
 		  if (remaining <= 2) closeToGiftCount++;
 		}
-		const footerLines = [
-		  '',
-		  `Rewards this period: ${rewardPointsThisRun} pts`,
-		  `Rewards today: ${rewardsToday} pts`,
-		  `Models close to 🎁: ${closeToGiftCount}`
-		];
+		 const footerLines = [
+   '',
+   `🎁 Points (période) : ${rewardPointsThisRun} pts`,
+   `🎁 Points (aujourd’hui) : ${rewardsToday} pts`,
+   `🎯 Modèles proches du prochain palier (≤2) : ${closeToGiftCount}`
+ ];
 
         const message = headerLines.join('\n') + '\n' + spacedModels + '\n' + footerLines.join('\n');
         this.log('Aggregated summary message length:', message.length);
@@ -834,7 +883,7 @@ Total Reward Points: ${summary.rewardPointsTotal}
 
       const prevString = JSON.stringify(this.previousValues || {}), currString = JSON.stringify(currentValues || {});
       if (prevString !== currString) { this.previousValues = currentValues; await this.savePreviousValues(currentValues); } else this.log('No changes detected, skipping savePreviousValues to reduce storage writes.');
-      if (!anyNotification && !useSummaryMode) { const heartbeatMsg = 'No new prints or downloads found.'; this.log(heartbeatMsg); await this.sendTelegramMessage(heartbeatMsg); }
+      if (!anyNotification && !useSummaryMode) { const heartbeatMsg = 'Aucune nouvelle impression ni téléchargement.'; this.log(heartbeatMsg); await this.sendTelegramMessage(heartbeatMsg); }
     } catch (err) { this.error('Error during check:', err); }
     finally { this.isChecking = false; }
   }
@@ -977,9 +1026,17 @@ Total Reward Points: ${summary.rewardPointsTotal}
       if (!previous && current.permalink) previous = Object.values(previousDay.models || {}).find(m => m && m.permalink === current.permalink) || null;
       if (!previous && current.name) previous = Object.values(previousDay.models || {}).find(m => m?.name?.trim().toLowerCase() === current.name.trim().toLowerCase()) || null;
       if (!previous) { this.log('New model found (interim):', current.name); continue; }
-      const downloadsGained = Math.max(0, (Number(current.downloads) || 0) - (Number(previous.downloads) || 0));
-      const printsGained = Math.max(0, (Number(current.prints) || 0) - (Number(previous.prints) || 0));
-      if (downloadsGained > 0 || printsGained > 0) modelChanges[id] = { id, name: current.name, downloadsGained, printsGained, previousDownloads: previous.downloads || 0, previousPrints: previous.prints || 0, currentDownloads: current.downloads || 0, currentPrints: current.prints || 0, imageUrl: current.imageUrl || '' };
+      const downloadsGained = Math.max(0, (Number(current.downloads)||0) - (Number(previous.downloads)||0));
+      const printsGained = Math.max(0, (Number(current.prints)||0) - (Number(previous.prints)||0));
+      const boostsGained = Math.max(0, (Number(current.boosts)||0) - (Number(previous.boosts)||0));
+      if (downloadsGained > 0 || printsGained > 0 || boostsGained > 0)
+        modelChanges[id] = {
+          id, name: current.name,
+          downloadsGained, printsGained, boostsGained,
+          previousDownloads: previous.downloads || 0, previousPrints: previous.prints || 0,
+          currentDownloads: current.downloads || 0, currentPrints: current.prints || 0,
+          imageUrl: current.imageUrl || ''
+        };
     }
 
     const dailyDownloads = Object.values(modelChanges).reduce((s,m)=>s+m.downloadsGained,0);
@@ -1000,23 +1057,30 @@ Total Reward Points: ${summary.rewardPointsTotal}
       if (thresholdsHit.length) rewardsEarned.push({ id:m.id, name:m.name, thresholds:thresholdsHit.map(t=>t.threshold), rewardPointsTotalForModel:thresholdsHit.reduce((s,t)=>s+t.points,0) });
     }
 
-    const totalEquivalent = dailyDownloads + (dailyPrints * 2);
+     const totalEquivalent = dailyDownloads + (dailyPrints * 2);
+    const boostPointsVal = await this._getBoostPointsValue();
+    const totalBoostsGained = Object.values(modelChanges).reduce((s,m)=>s + (m.boostsGained||0), 0);
+    const boostPointsTotal = totalBoostsGained * boostPointsVal;
+    rewardPointsTotal += boostPointsTotal;
     const topDownloadsList = top5Downloads.length ? top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'No new downloads so far';
     const topPrintsList = top5Prints.length ? top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'No new prints so far';
     const fromTs = new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const message = `
-🔔 Interim Summary (${fromTs} - ${toTs}):
+ const message = `
+🔔 Récap intermédiaire (${fromTs} → ${toTs})
 
-Total Download points: ${totalEquivalent}
+Points de téléchargement : ${totalEquivalent}
+⚡ Boosts gagnés : +${totalBoostsGained} → +${boostPointsTotal} pts
 
-🏆 Top Downloads:
+🏆 Top téléchargements :
 ${topDownloadsList}
 
-🖨️ Top Prints:
+🖨️ Top impressions :
 ${topPrintsList}
 
-🎁 Rewards earned so far:
-${rewardsEarned.length > 0 ? rewardsEarned.map(r => `${r.name}: +${r.rewardPointsTotalForModel} points (thresholds: ${r.thresholds.join(', ')})`).join('\n') : 'No rewards earned so far'}
+🎁 Points gagnés jusque-là :
+${(rewardPointsTotal > 0)
+  ? `${rewardsEarned.length ? rewardsEarned.map(r => `${r.name} : +${r.rewardPointsTotalForModel} pts (seuils : ${r.thresholds.join(', ')})`).join('\n')+'\n' : ''}Total : ${rewardPointsTotal} pts`
+  : 'Aucun point pour l’instant'}
 `.trim();
     this.log('Interim message:', message);
     const sent = await this.sendTelegramMessage(message);
