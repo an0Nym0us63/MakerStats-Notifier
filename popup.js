@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const ntfyAuthInput = document.getElementById('ntfy-auth');
   const ntfyTagsInput = document.getElementById('ntfy-tags');
   const ntfyPriorityInput = document.getElementById('ntfy-priority');
+  const siteUrlInput = document.getElementById('site-url');
+  const chinaUrlInput = document.getElementById('china-url');
+  const chinaPrefixInput = document.getElementById('china-prefix');
 
   function toggleNtfyBlock() {
     ntfyBlock.style.display = useNtfyCheckbox.checked ? 'block' : 'none';
@@ -59,7 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
     'telegramToken','chatId','refreshInterval',
     'dailyReport','dailyNotificationTime','notifySummaryMode',
     // ntfy
-    'useNtfy','ntfyUrl','ntfyAuth','ntfyTags','ntfyPriority'
+    'useNtfy','ntfyUrl','ntfyAuth','ntfyTags','ntfyPriority','siteUrl','chinaUrl','chinaPrefix'
   ], function (config) {
     telegramTokenInput.value = config.telegramToken || '';
     chatIdInput.value = config.chatId || '';
@@ -73,6 +76,10 @@ document.addEventListener('DOMContentLoaded', function () {
     ntfyAuthInput.value = config.ntfyAuth || '';
     ntfyTagsInput.value = config.ntfyTags || '';
     ntfyPriorityInput.value = config.ntfyPriority || 3;
+	
+    siteUrlInput.value = config.siteUrl || '';
+    chinaUrlInput.value = config.chinaUrl || '';
+    chinaPrefixInput.value = (config.chinaPrefix || 'cn_');
 
     toggleNtfyBlock();
   });
@@ -104,7 +111,10 @@ document.addEventListener('DOMContentLoaded', function () {
       ntfyUrl: ntfyUrlInput.value.trim(),
       ntfyAuth: ntfyAuthInput.value.trim(),
       ntfyTags: ntfyTagsInput.value.trim(),
-      ntfyPriority: Math.min(5, Math.max(1, parseInt(ntfyPriorityInput.value || '3', 10)))
+      ntfyPriority: Math.min(5, Math.max(1, parseInt(ntfyPriorityInput.value || '3', 10))),
+      siteUrl: siteUrlInput.value.trim(),
+      chinaUrl: chinaUrlInput.value.trim(),
+      chinaPrefix: chinaPrefixInput.value.trim() || 'cn_'
     };
 
     chrome.storage.sync.set(cfg, function () {
@@ -123,6 +133,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       });
     });
+	chrome.runtime.sendMessage({ type: 'MW_RESCHEDULE' });
   });
 
   // Interim summary now
@@ -142,4 +153,57 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     });
   });
+});
+
+function sendToSW(action, payload = {}) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ from: 'popup', action, payload }, (resp) => {
+      resolve(resp || { ok: false });
+    });
+  });
+}
+
+// Util: petit helper d’état UI
+function setBusy(busy) {
+  const runBtn = document.getElementById('btnRunNowBoth');
+  const interimBtn = document.getElementById('btnInterimNowBoth');
+  const status = document.getElementById('orchStatus');
+  [runBtn, interimBtn].forEach(b => b && (b.disabled = !!busy));
+  if (status) status.textContent = busy ? 'Exécution en cours…' : '';
+}
+
+// Vérif rapide: URLs présentes ?
+async function ensureUrlsConfigured() {
+  const { europeUrl, chinaUrl } = await chrome.storage.sync.get(['europeUrl', 'chinaUrl']);
+  if (!europeUrl || !chinaUrl) {
+    alert("Merci de configurer les deux URLs (EU et CN) avant de lancer la séquence.");
+    return null;
+  }
+  return { europeUrl, chinaUrl };
+}
+
+// Bouton: Lancer séquence EU → CN
+document.getElementById('btnRunNowBoth')?.addEventListener('click', async () => {
+  if (!await ensureUrlsConfigured()) return;
+  try {
+    setBusy(true);
+    const res = await sendToSW('ORCH_RUN_NOW_BOTH');
+    const status = document.getElementById('orchStatus');
+    if (status) status.textContent = res?.ok ? 'Séquence EU → CN lancée.' : 'Échec du lancement.';
+  } finally {
+    setBusy(false);
+  }
+});
+
+// Bouton: Récap intermédiaire EU → CN
+document.getElementById('btnInterimNowBoth')?.addEventListener('click', async () => {
+  if (!await ensureUrlsConfigured()) return;
+  try {
+    setBusy(true);
+    const res = await sendToSW('ORCH_INTERIM_NOW_BOTH');
+    const status = document.getElementById('orchStatus');
+    if (status) status.textContent = res?.ok ? 'Récap intermédiaire lancé.' : 'Échec du lancement.';
+  } finally {
+    setBusy(false);
+  }
 });
