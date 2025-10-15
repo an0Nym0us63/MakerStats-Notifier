@@ -5,26 +5,26 @@
   "description": "Sends notifications about prints, downloads, and points earned on MakerWorld (Telegram or ntfy).",
   "permissions": ["alarms", "tabs", "storage", "scripting"],
   "background": { "service_worker": "service_worker.js" },
-"host_permissions": [
-  "https://*.makerworld.com/*",
-  "https://*.makerworld.com.cn/*",
-  "*://translate.google.com/*",
-"*://*-translate.goog/*"
-],
-"content_scripts": [{
-  "matches": [
+
+  "host_permissions": [
     "https://*.makerworld.com/*",
     "https://*.makerworld.com.cn/*",
-	"*://translate.google.com/*",
-"*://*-translate.goog/*"
+    "*://translate.google.com/*",
+    "*://*-translate.goog/*"
   ],
-  "js": ["content.js"],
-  "run_at": "document_idle"
-}],
-  "web_accessible_resources": [{
-    "resources": ["content.js"],
-    "matches": ["<all_urls>"]
+
+  "content_scripts": [{
+    "matches": [
+      "https://*.makerworld.com/*",
+      "https://*.makerworld.com.cn/*",
+      "*://translate.google.com/*",
+      "*://*-translate.goog/*"
+    ],
+    "js": ["content.js"],
+    "run_at": "document_idle",
+    "all_frames": true
   }],
+
   "action": { "default_popup": "popup.html", "default_icon": "icon.png" },
   "icons": { "48": "icon.png", "128": "icon.png" }
 }

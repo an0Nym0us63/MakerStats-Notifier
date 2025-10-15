@@ -42,40 +42,49 @@ async function setLocal(o){ return await new Promise(res => chrome.storage.local
 async function openAndRun(url, regionLabel, task) {
   const runId = `${Date.now()}:${regionLabel}:${task}`;
   await setLocal({ mw_orchestrated_mode: true, mw_current_run: runId });
-  const useTranslate = true; // ou lis un flag chrome.storage.sync (ex: forceTranslateCN)
-const effectiveUrl = (regionLabel === 'CN' && useTranslate)
-  ? wrapWithTranslateGoog(url, 'zh-CN', 'fr')
-  : url;
 
-  const tab = await chrome.tabs.create({ url, active: false });
+  const useTranslate = true; // ou lis un flag storage
+  const effectiveUrl = (regionLabel === 'CN' && useTranslate)
+    ? wrapWithTranslateGoog(url, 'zh-CN', 'fr')
+    : url;
 
-  // garde-fou fermeture forcée
-  const hardClose = setTimeout(async () => { try { await chrome.tabs.remove(tab.id); } catch {} }, ORCH.DWELL_MS);
+  // ⚠️ utiliser effectiveUrl (et pas url)
+  const tab = await chrome.tabs.create({ url: effectiveUrl, active: false });
 
-  // dès que le content est prêt, on lui envoie la tâche
-chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-  if (tabId === tab.id && info.status === 'complete') {
-    chrome.tabs.onUpdated.removeListener(listener);
+  const hardClose = setTimeout(async () => {
+    try { await chrome.tabs.remove(tab.id); } catch {}
+  }, ORCH.DWELL_MS);
 
-    (async () => {
-      const ready = await ensureContentReady(tab.id);
-      if (!ready) {
-        console.warn(`[MW][${regionLabel}] Content non prêt → abort RUN_TASK`);
-        return;
-      }
-      try {
-        await new Promise((resolve) => {
-          chrome.tabs.sendMessage(tab.id, { type: 'RUN_TASK', task, region: regionLabel, runId }, () => resolve());
-        });
-      } catch (e) {
-        console.warn('[MW] send RUN_TASK error (ignored):', e);
-      }
-    })();
-  }
-});
+  chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+    if (tabId === tab.id && info.status === 'complete') {
+      chrome.tabs.onUpdated.removeListener(listener);
+      (async () => {
+        const ready = await ensureContentReady(tab.id);
+        if (!ready) {
+          console.warn(`[MW][${regionLabel}] Content non prêt → abort RUN_TASK`);
+          return;
+        }
+        try {
+          await new Promise((resolve) => {
+            chrome.tabs.sendMessage(
+              tab.id,
+              { type: 'RUN_TASK', task, region: regionLabel, runId },
+              () => resolve()
+            );
+          });
+        } catch (e) {
+          console.warn('[MW] send RUN_TASK error (ignored):', e);
+        }
+      })();
+    }
+  });
 
-  const done = await new Promise(resolve => {
-    const t = setTimeout(() => resolve(false), ORCH.AWAIT_MS);
+  const done = await new Promise((resolve) => {
+    const t = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(onMsg); // ✅ nettoyer au timeout
+      resolve(false);
+    }, ORCH.AWAIT_MS);
+
     function onMsg(msg) {
       if (msg && msg.type === 'CONTENT_DONE' &&
           msg.runId === runId && msg.region === regionLabel && msg.task === task) {
@@ -89,7 +98,6 @@ chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
 
   clearTimeout(hardClose);
   try { await chrome.tabs.remove(tab.id); } catch {}
-
   console.log(`[MW][${regionLabel}] ${task} finished:`, done ? 'ok' : 'timeout');
   return done;
 }
@@ -174,45 +182,33 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// Permettre le “Reschedule” depuis le popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-	 console.log('[SW] onMessage', msg); // keep this while testing
-  if (msg && msg.type === 'MW_RESCHEDULE') {
+  console.log('[SW] onMessage', msg);
+
+  if (msg?.type === 'MW_RESCHEDULE') {
     scheduleAll().then(() => sendResponse({ ok: true }))
                  .catch(err => sendResponse({ ok: false, error: String(err) }));
-    return true;
-  }
-});
-
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // (déjà présent) replanifier les alarmes
-  if (msg && msg.type === 'MW_RESCHEDULE') {
-    scheduleAll().then(() => sendResponse({ ok: true }))
-                 .catch(err => sendResponse({ ok: false, error: String(err) }));
-    return true;
+    return true; // async
   }
 
-  // ▶️ Bouton "Lancer la séquence" (CHECK sur EU puis CN)
-  if (msg && msg.type === 'ORCH_RUN_NOW_BOTH') {
+  if (msg?.type === 'ORCH_RUN_NOW_BOTH') {
     runBothSites('CHECK')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
-    return true; // async
+    return true;
   }
 
-  // ⏱️ Bouton "Récap intermédiaire" (INTERIM sur EU puis CN)
-  if (msg && msg.type === 'ORCH_INTERIM_NOW_BOTH') {
+  if (msg?.type === 'ORCH_INTERIM_NOW_BOTH') {
     runBothSites('INTERIM')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
-    return true; // async
+    return true;
   }
 
-  // (optionnel) si tu ajoutes un bouton "Daily now"
-  if (msg && msg.type === 'ORCH_DAILY_NOW_BOTH') {
+  if (msg?.type === 'ORCH_DAILY_NOW_BOTH') {
     runBothSites('DAILY')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
-    return true; // async
+    return true;
   }
 });

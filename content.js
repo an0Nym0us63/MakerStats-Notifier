@@ -3,6 +3,7 @@ console.log(`Initializing monitor — ${ITERATION}`);
 // en haut du fichier (scope global du content)
 let MW_CURRENT_TASK = null; // 'CHECK' | 'DAILY' | 'INTERIM'
 let MW_CURRENT_REGION = null;
+let monitor;
 let __MW_CFG__ = {};
 function loadSync(keys) {
   return new Promise(res => chrome.storage.sync.get(keys, v => res(v || {})));
@@ -1181,7 +1182,7 @@ console.log('Initializing monitor...');
   all._ctx = computeSiteContext(all);
   __MW_CFG__ = all;
 
-  window.monitor = new ValueMonitor();   // rendre dispo global si besoin
+  monitor = new ValueMonitor();
   await monitor.start();
 })();
 
@@ -1238,13 +1239,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Décorateurs (une seule fois)
       monitor.sendTelegramMessage = (m, ...rest) => origSend(`${tag} ${m}`, ...rest);
       monitor.sendTelegramMessageWithPhoto = (m, photo, ...rest) => origSendP(`${tag} ${m}`, photo, ...rest);
-		await waitForTranslationApplied();
+		await waitForTranslationApplied(12000);
+        await autoScrollToFullBottom();
       // Exécuter
       if (task === 'CHECK') {
-        await autoScrollToFullBottom();
         await monitor.checkAndNotify();
       } else if (task === 'INTERIM') {
-        await autoScrollToFullBottom();
         await monitor.handleInterimSummaryRequest();
       } else if (task === 'DAILY') {
         const summary = await monitor.getDailySummary({ persist: true });
@@ -1259,7 +1259,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await monitor.sendTelegramMessage(message);
         }
       } else if (task === 'DUMP') {
-        await autoScrollToFullBottom();
         await monitor.sendModelsSnapshot();
       }
 
