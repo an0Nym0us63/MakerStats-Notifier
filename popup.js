@@ -147,9 +147,9 @@
   }
 })();
 
-function sendToSW(action, payload = {}) {
+function sendToSW(type, payload = {}) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ from: 'popup', action, payload }, (resp) => {
+    chrome.runtime.sendMessage({ type, ...payload }, (resp) => {
       resolve(resp || { ok: false });
     });
   });
