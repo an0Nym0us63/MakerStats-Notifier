@@ -49,7 +49,11 @@ async function openAndRun(url, regionLabel, task) {
     : url;
 
   // ⚠️ utiliser effectiveUrl (et pas url)
-  const tab = await chrome.tabs.create({ url: effectiveUrl, active: false });
+   const tab = await chrome.tabs.create({ url: url, active: true });
+ try {
+   const win = await chrome.windows.getCurrent();
+   await chrome.windows.update(win.id, { focused: true });
+ } catch (_) {}
 
   chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
     if (tabId === tab.id && info.status === 'complete') {
