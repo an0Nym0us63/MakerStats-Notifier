@@ -140,7 +140,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ▶️ Bouton "Lancer la séquence" (CHECK sur EU puis CN)
-  if (msg && msg.type === 'MW_RUN_SEQUENCE') {
+  if (msg && msg.type === 'ORCH_RUN_NOW_BOTH') {
     runBothSites('CHECK')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
@@ -148,7 +148,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ⏱️ Bouton "Récap intermédiaire" (INTERIM sur EU puis CN)
-  if (msg && msg.type === 'MW_RUN_INTERIM') {
+  if (msg && msg.type === 'ORCH_INTERIM_NOW_BOTH') {
     runBothSites('INTERIM')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
@@ -156,7 +156,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // (optionnel) si tu ajoutes un bouton "Daily now"
-  if (msg && msg.type === 'MW_RUN_DAILY') {
+  if (msg && msg.type === 'ORCH_DAILY_NOW_BOTH') {
     runBothSites('DAILY')
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err) }));
