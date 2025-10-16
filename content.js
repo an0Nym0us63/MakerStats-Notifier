@@ -868,7 +868,7 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
         const lastDailyRewards = await this._getLastDailyRewards?.() ?? 0;
         const fromTs = new Date(this.previousValues.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
         const headerLines = [
-  `📊 Récap (${fromTs} → ${toTs})`,
+  `📊 Evènement (${fromTs} → ${toTs})`,
   '',
   `Points de téléchargement sur la période : ${totalEquivalent}`,
   '',
