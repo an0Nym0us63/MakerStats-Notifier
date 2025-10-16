@@ -175,7 +175,12 @@ class ValueMonitor {
       return Number.isFinite(v) && v >= 0 ? v : this._boostPointsDefault;
     } catch { return this._boostPointsDefault; }
   }
-
+async _getYesterdayRewards() {
+  const prev = await new Promise(res =>
+    chrome.storage.local.get([this._lastSuccessfulKey], r => res(r?.[this._lastSuccessfulKey] || null))
+  );
+  return Number.isFinite(prev?.rewardPointsTotal) ? prev.rewardPointsTotal : 0;
+}
 
 _clearInterimTimers() {
   for (const t of this._interimTimers) clearTimeout(t);
@@ -612,6 +617,10 @@ scheduleInterimNotifications() {
           if (!okToSend) { this.log('scheduleDailyNotification: preSendCheck indicates newer snapshot; aborting this send.'); clearPending = true; return; }
           this.log(`Sending daily report: ${new Date()}`);
           const summary = await this.getDailySummary();
+		  const prevDaily = await new Promise(res =>
+  chrome.storage.local.get([this._lastSuccessfulKey], r => res(r?.[this._lastSuccessfulKey] || null))
+);
+const yesterdayRewards = Number.isFinite(prevDaily?.rewardPointsTotal) ? prevDaily.rewardPointsTotal : 0;
           if (summary) {
             let rewardsSection = 'No rewards earned in the prior 24 hours';
             if (summary.rewardsEarned?.length) rewardsSection = summary.rewardsEarned.map(r => `${r.name}: +${r.rewardPointsTotalForModel} points (thresholds: ${r.thresholds.join(', ')})`).join('\n');
@@ -636,6 +645,7 @@ ${summary.rewardsEarned?.length
   : 'Aucun palier atteint'}
 
 Total points (24h) : ${summary.rewardPointsTotal}
+🧧 Rewards de la veille : +${await this._getYesterdayRewards()} pts
 `.trim();
             const sent = await this.sendTelegramMessage(message);
             if (sent) {
@@ -765,7 +775,8 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
   if (Math.abs(downloadsDeltaRaw) > this._suspiciousDeltaLimit || Math.abs(printsDelta) > this._suspiciousDeltaLimit) {
     warning = "\n\n⚠️ Volume très élevé sur la période. C’est peut-être un pic de popularité (bravo !) ou un artefact. Tu peux réduire l’intervalle de rafraîchissement si besoin.";
   }
-
+  
+  lines.push(`🧧 Rewards de la veille : +${await this._getYesterdayRewards()} pts`);
   const message = lines.join('\n') + warning;
 
   this.log(`Sending milestone message for ${current.name}`);
@@ -785,6 +796,8 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
             const lines = [];
 			const boostPts = Math.max(0, boostsDelta) * (await this._getBoostPointsValue());
  lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} → +${boostPts} pts`);
+ 
+  lines.push(`🧧 Rewards de la veille : +${await this._getYesterdayRewards()} pts`);
             const message = lines.join('\n');
             this.log('MESSAGE-BRANCH', { iteration: ITERATION, name: current.name, branch: 'boost-only', downloadsDeltaEquivalent, boostsDelta, rewardsFound: modelSummary.rewards.length });
             this.log(`Sending boost-only message for ${current.name}`);
@@ -894,10 +907,12 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
 		  const remaining = Math.max(0, next - total);
 		  if (remaining <= 2) closeToGiftCount++;
 		}
+		const yesterdayRewards = await this._getYesterdayRewards();
 		 const footerLines = [
    '',
    `🎁 Points (période) : ${rewardPointsThisRun} pts`,
    `🎁 Points (aujourd’hui) : ${rewardsToday} pts`,
+   `🧧 Rewards de la veille : +${yesterdayRewards} pts`,
    `🎯 Modèles proches du prochain palier (≤2) : ${closeToGiftCount}`
  ];
 
@@ -1092,6 +1107,8 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
     const topDownloadsList = top5Downloads.length ? top5Downloads.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.downloadsGained}`).join('\n') : 'No new downloads so far';
     const topPrintsList = top5Prints.length ? top5Prints.map((m,i)=>`${i+1}. <b>${escapeHtml(m.name)}</b>: +${m.printsGained}`).join('\n') : 'No new prints so far';
     const fromTs = new Date(previousDay.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+ 
+const yesterdayRewards = await this._getYesterdayRewards();
  const message = `
 🔔 Récap intermédiaire (${fromTs} → ${toTs})
 
@@ -1108,6 +1125,7 @@ ${topPrintsList}
 ${(rewardPointsTotal > 0)
   ? `${rewardsEarned.length ? rewardsEarned.map(r => `${r.name} : +${r.rewardPointsTotalForModel} pts (seuils : ${r.thresholds.join(', ')})`).join('\n')+'\n' : ''}Total : ${rewardPointsTotal} pts`
   : 'Aucun point pour l’instant'}
+🧧 Rewards de la veille : +${yesterdayRewards} pts
 `.trim();
     this.log('Interim message:', message);
     const sent = await this.sendTelegramMessage(message);
