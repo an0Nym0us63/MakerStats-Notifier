@@ -154,6 +154,7 @@ class ValueMonitor {
 	this._interimJitterMs = 15_000; // ±15s pour désynchroniser
 	this._interimClaimKey = 'lastInterimSentKey'; // anti-doublon cross-onglets
 	this._boostPointsDefault = 15;
+	this._lastDailyRewardsKey = 'lastDailyRewardsPoints';
   }
 
   // logging shorthands (preserve outputs)
@@ -176,6 +177,13 @@ class ValueMonitor {
     } catch { return this._boostPointsDefault; }
   }
 
+  // Lire les rewards sauvegardés au dernier daily envoyé
+  async _getLastDailyRewards() {
+    const raw = await new Promise(res =>
+      chrome.storage.local.get([this._lastDailyRewardsKey], r => res(r?.[this._lastDailyRewardsKey]))
+    );
+    return Number.isFinite(raw) ? raw : 0;
+  }
 
 _clearInterimTimers() {
   for (const t of this._interimTimers) clearTimeout(t);
@@ -636,11 +644,16 @@ ${summary.rewardsEarned?.length
   : 'Aucun palier atteint'}
 
 Total points (24h) : ${summary.rewardPointsTotal}
+🧧 Rewards de la veille : ${await this._getLastDailyRewards()} pts
 `.trim();
             const sent = await this.sendTelegramMessage(message);
             if (sent) {
               const sentAt = Date.now();
               const runningRewardPoints = await new Promise(res => chrome.storage.local.get([this._dailyRunningRewardKey], r => res(r?.[this._dailyRunningRewardKey] || 0)));
+			   try {
+                await new Promise(r => chrome.storage.local.set({ [this._lastDailyRewardsKey]: runningRewardPoints }, () => r()));
+                this.log('scheduleDailyNotification: set lastDailyRewardsPoints =', runningRewardPoints);
+              } catch(e) { this.warn('Failed to persist lastDailyRewardsPoints', e); }
               const finalRecord = { state:'SENT', owner:this._instanceId, sentAt, periodKey, snapshot:{ models: summary.top5Downloads.concat(summary.top5Prints).reduce((acc,m)=>{acc[m.id]=m;return acc;},{}), points: summary.points, timestamp: Date.now() }, rewardPointsTotal: runningRewardPoints };
               await new Promise(resolve => chrome.storage.local.set({ [this._lastSuccessfulKey]: finalRecord }, () => { this.log('scheduleDailyNotification: wrote lastSuccessfulDailyReport SENT by', this._instanceId, 'sentAt=', new Date(sentAt).toISOString(), 'periodKey=', periodKey); resolve(); }));
               try { chrome.storage.local.set({ [this._dailyRunningRewardKey]:0, [this._dailyRunningRewardDayKey]: periodKey }, () => { this.log('scheduleDailyNotification: reset running reward counter for period', { periodKey }); }); } catch (err) { this.error('Error resetting running reward counter for period', err); }
@@ -850,7 +863,9 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
           } catch (err) { this.warn('Periodic summary: fallback computation failed', err); }
         }
 
-        let rewardsToday = running - lastDailyPoints; if (rewardsToday < 0) rewardsToday = running;
+		let rewardsToday = running - lastDailyPoints; if (rewardsToday < 0) rewardsToday = running;
+        // Valeur figée au dernier daily (veille)
+        const lastDailyRewards = await this._getLastDailyRewards?.() ?? 0;
         const fromTs = new Date(this.previousValues.timestamp).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }), toTs = new Date().toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
         const headerLines = [
   `📊 Récap (${fromTs} → ${toTs})`,
@@ -898,6 +913,7 @@ lines.push(`⚡ Boost sur : ${current.name}`, '', `⚡ Boosts : +${boostsDelta} 
    '',
    `🎁 Points (période) : ${rewardPointsThisRun} pts`,
    `🎁 Points (aujourd’hui) : ${rewardsToday} pts`,
+   `🧧 Rewards de la veille : ${lastDailyRewards} pts`,
    `🎯 Modèles proches du prochain palier (≤2) : ${closeToGiftCount}`
  ];
 
@@ -1108,6 +1124,7 @@ ${topPrintsList}
 ${(rewardPointsTotal > 0)
   ? `${rewardsEarned.length ? rewardsEarned.map(r => `${r.name} : +${r.rewardPointsTotalForModel} pts (seuils : ${r.thresholds.join(', ')})`).join('\n')+'\n' : ''}Total : ${rewardPointsTotal} pts`
   : 'Aucun point pour l’instant'}
+🧧 Rewards de la veille : ${await this._getLastDailyRewards()} pts
 `.trim();
     this.log('Interim message:', message);
     const sent = await this.sendTelegramMessage(message);
